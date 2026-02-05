@@ -1,42 +1,39 @@
 # services/orchestrator.py
-import logging
-from database.db import SessionLocal
+from sqlalchemy.orm import Session
 from database.models import SearchProfile
 from services.scanner import FlightScanner
 from services.matcher import DealMatcher
-from sqlalchemy.orm import Session
+from datetime import datetime
+import traceback
 
 
-logger = logging.getLogger(__name__)
-
-def run_full_update(db_session: Session = None):
+def update_single_profile(db: Session, profile_id: int):
     """
-    Orchestrates the refresh of flights and the re-matching of deals.
+    Runs the full Scanner -> Matcher cycle for a SINGLE profile.
     """
-    db = db_session or SessionLocal()
+    profile = db.query(SearchProfile).get(profile_id)
+    if not profile or not profile.is_active:
+        print(f"Skipping update: Profile {profile_id} not found or inactive.")
+        return
+
+    print(f"--- [Orchestrator] Starting Update for: {profile.name} ---")
     try:
-        scanner = FlightScanner()
-        matcher = DealMatcher()
-        profiles = db.query(SearchProfile).filter(SearchProfile.is_active == True).all()
-        
-        if not profiles:
-            return
-        
-        # Group origins by adult count: {1: {'PSA', 'BLQ'}, 2: {'PSA'}}
-        scan_groups = {}
-        for p in profiles:
-            if p.adults not in scan_groups:
-                scan_groups[p.adults] = set()
-            scan_groups[p.adults].update(p.origins)
+        # 1. SCAN: Fetch flights for this profile's origins
+        scanner = FlightScanner(db=db)
+        count_flights = scanner.run(profile)
+        print(f"    > Scanned {count_flights} flights.")
 
-        # Run scans for each group
-        for adult_count, origins in scan_groups.items():
-            scanner.run(origins=list(origins), adults=adult_count)
+        # 2. MATCH: Find deals for this profile
+        matcher = DealMatcher(db=db)
+        count_deals = matcher.run(profile) # This now commits internal deals
+        print(f"    > Found {count_deals} matching deals.")
 
-        for profile in profiles:
-            matcher.run(profile)
-            
+        # 3. UPDATE TIMESTAMP
+        profile.updated_at = datetime.now()
+        db.commit()
+        print(f"--- [Orchestrator] Update Complete for {profile.name} ---")
     except Exception as e:
-        logger.error(f"Error during scheduled update: {e}")
-    finally:
-        db.close()
+        db.rollback()
+        print(f"❌ [Orchestrator] Update FAILED for {profile.name}")
+        print(f"   Reason: {e}")
+        traceback.print_exc()

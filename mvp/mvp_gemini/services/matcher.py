@@ -29,7 +29,7 @@ class DealMatcher:
         Inbound = aliased(Flight)
 
         # 1. Start with the base query and mandatory filters
-        query = self.db.query(Outbound, Inbound).join(
+        candidates = self.db.query(Outbound, Inbound).join(
             Inbound,
             (Outbound.destination == Inbound.origin)
         ).filter(
@@ -37,16 +37,14 @@ class DealMatcher:
             Inbound.destination.in_(home_airports),
             (Outbound.price + Inbound.price) / adults <= profile.max_price * 1.25,  # Allow 25% tolerance
             Inbound.departure_time > Outbound.arrival_time
-        )
-
-        # 3. Execute the query
-        candidates = query.all()
+        ).all()
         
         num_matches = 0
         for out_f, in_f in candidates:
             if self._is_valid_match(out_f, in_f, config):
                 self._create_deal(profile, out_f, in_f)
                 num_matches += 1
+        self.db.flush()
         
         # 2. Prune old deals
         # If a deal wasn't updated in this run, it means the flights no longer exist
@@ -56,8 +54,6 @@ class DealMatcher:
             Deal.profile_id == profile.id,
             Deal.updated_at < threshold
         ).delete()
-        
-        self.db.commit()
         
         return num_matches
 
@@ -99,24 +95,20 @@ class DealMatcher:
         ).first()
 
         adults = float(profile.adults)
+        actual_price_pp = round((out_f.price + in_f.price) / adults, 2)
         if existing:
-            # c'era già
-            actual_price_pp = round((out_f.price + in_f.price) / adults, 2)
+            existing.updated_at = datetime.now()
             if existing.total_price_pp != actual_price_pp:
                 # prezzo cambiato, aggiorno
                 existing.total_price_pp = actual_price_pp
-                existing.updated_at = datetime.now()
                 existing.notified = False
-            else:
-                # non è cambiato il prezzo ma l'offerta c'è ancora
-                existing.updated_at = datetime.now()
         else:
-            deal = Deal(
+            new_deal = Deal(
                 profile_id=profile.id,
                 outbound_flight_id=out_f.id,
                 inbound_flight_id=in_f.id,
-                total_price_pp=round((out_f.price + in_f.price) / adults, 2),
+                total_price_pp=actual_price_pp,
                 updated_at=datetime.now(),
                 notified=False
             )
-            self.db.add(deal)
+            self.db.add(new_deal)

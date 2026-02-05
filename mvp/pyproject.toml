@@ -12,6 +12,7 @@ dependencies = [
     "pandas>=2.3.3",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
+    "python-multipart>=0.0.22",
     "requests>=2.32.5",
     "ryanair-py @ file:/home/masaccio/lesgoski/mvp/repos/ryanair-py",
     "schedule>=1.2.2",
