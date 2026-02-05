@@ -4,17 +4,23 @@ from ryanair import Ryanair # Your existing lib
 from core.schemas import FlightSchema
 from database.db import SessionLocal
 from database.models import Flight
+from sqlalchemy.orm import Session
+
 
 class FlightScanner:
-    def __init__(self):
+    def __init__(self, db: Session = None):
         self.api = Ryanair(currency="EUR")
-        self.db = SessionLocal()
+        self.db = db or SessionLocal()
 
-    def run(self, origins: list[str], days_horizon: int = 60) -> int:
+    def run(self, origins: list[str], adults: int = 1, days_horizon: int = 60) -> int:
         """
         Dumb-scan: Just get all flights from origins for X days.
         Returns total number of flights found.
         """
+        # Clear old flights to keep DB lean as requested
+        self.db.query(Flight).filter(Flight.adults == adults).delete()
+        self.db.commit()
+        
         today = datetime.now().date()
         date_from = today
         date_to = today + timedelta(days=days_horizon)
@@ -28,6 +34,7 @@ class FlightScanner:
             # If using "farefinder" API (get_cheapest_flights), we can often leave dest empty
             raw_flights = self.api.get_cheapest_flights(
                 airport=origin,
+                num_adults=adults,
                 date_from=date_from,
                 date_to=date_to
             )
@@ -43,6 +50,7 @@ class FlightScanner:
                 # Scan One-Way Inbound (Anywhere -> Origin)
                 raw_inbound = self.api.get_cheapest_flights(
                     airport=dest,
+                    num_adults=adults,
                     destination_airport=origin, # Explicitly back to home
                     date_from=date_from,
                     date_to=date_to
@@ -57,12 +65,16 @@ class FlightScanner:
         # (Simplified for brevity - use bulk_save_objects or merge in prod)
         for f in api_flights:
             f_schema = FlightSchema(
-                origin=f.origin,
-                destination=f.destination,
                 departure_time=f.departureTime,
                 arrival_time=f.arrivalTime,
                 flight_number=f.flightNumber,
-                price=round(f.price, 2)
+                price=round(f.price, 2),
+                currency=f.currency,
+                origin=f.origin,
+                origin_full=f.originFull,
+                destination=f.destination,
+                destination_full=f.destinationFull,
+                adults=f.adults,
             )
             
             # SQLite upsert logic or simple check

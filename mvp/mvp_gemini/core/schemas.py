@@ -1,24 +1,26 @@
 # core/schemas.py
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
+import hashlib
 from typing import List
 from typing import Dict, Tuple
 
 
 class FlightSchema(BaseModel):
-    origin: str
-    destination: str
     departure_time: datetime
     arrival_time: datetime
     flight_number: str
     price: float
     currency: str = "EUR"
+    origin: str
+    origin_full: str
+    destination: str
+    destination_full: str
+    adults: int = 1
 
     @property
     def unique_id(self) -> str:
-        # Deterministic ID generation
-        import hashlib
-        raw = f"{self.flight_number}_{self.departure_time.isoformat()}"
+        raw = f"{self.flight_number}_{self.departure_time.isoformat()}_{self.adults}"
         return hashlib.md5(raw.encode()).hexdigest()
 
 
@@ -52,6 +54,25 @@ class StrategyConfig(BaseModel):
         mode='before' runs this BEFORE Pydantic tries to validate the types.
         """
         if isinstance(v, dict):
-            # Convert keys to int, leave values as is
-            return {int(k): val for k, val in v.items()}
+            out = {}
+            for k, val in v.items():
+                try:
+                    out[int(k)] = val
+                except (TypeError, ValueError):
+                    raise ValueError(f"Invalid day key: {k!r}")
+            return out
         return v
+    
+    @field_validator('out_days', 'in_days')
+    @classmethod
+    def validate_day_range(cls, v):
+        for day in v:
+            if not 0 <= day <= 6:
+                raise ValueError(f"Invalid weekday: {day}")
+        return v
+    
+    @model_validator(mode='after')
+    def check_stay_bounds(self):
+        if self.min_stay > self.max_stay:
+            raise ValueError("min_stay cannot be greater than max_stay")
+        return self

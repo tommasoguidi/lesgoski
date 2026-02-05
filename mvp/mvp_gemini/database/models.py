@@ -15,13 +15,16 @@ class Flight(Base):
     __tablename__ = 'flights'
 
     id = Column(String, primary_key=True) # Hash: carrier_flightnum_date
-    origin = Column(String, index=True)
-    destination = Column(String, index=True)
     departure_time = Column(DateTime, index=True)
     arrival_time = Column(DateTime)
     flight_number = Column(String)
     price = Column(Float)
     currency = Column(String, default="EUR")
+    origin = Column(String, index=True)
+    origin_full = Column(String)
+    destination = Column(String, index=True)
+    destination_full = Column(String)
+    adults = Column(Integer, default=1)
     
     # Metadata
     last_seen = Column(DateTime, default=func.now())
@@ -44,12 +47,13 @@ class SearchProfile(Base):
     
     # Constraints
     _origins = Column("origins", String)
+    adults = Column(Integer, default=1)
     allowed_destinations = Column(String, nullable=True) # JSON list or null for "Any"
     max_price = Column(Float)
     
     # Strategy Definition (JSON blob or separate columns)
     # Storing as JSON for flexibility in early stages is often better than over-normalizing
-    strategy_config = Column(String)
+    _strategy_object = Column(String)
     is_active = Column(Boolean, default=True)
     
     @property
@@ -67,14 +71,14 @@ class SearchProfile(Base):
     @property
     def strategy_object(self) -> StrategyConfig:
         """Parses the JSON string into a Pydantic object"""
-        if not self.strategy_config:
+        if not self._strategy_object:
             return None
-        return StrategyConfig.model_validate_json(self.strategy_config)
+        return StrategyConfig.model_validate_json(self._strategy_object)
 
     @strategy_object.setter
     def strategy_object(self, config: StrategyConfig):
         """Dumps Pydantic object back to JSON string"""
-        self.strategy_config = config.model_dump_json()
+        self._strategy_object = config.model_dump_json()
 
 
 class Deal(Base):
@@ -90,9 +94,11 @@ class Deal(Base):
     outbound_flight_id = Column(String, ForeignKey('flights.id'))
     inbound_flight_id = Column(String, ForeignKey('flights.id'))
     
-    total_price = Column(Float)
-    found_at = Column(DateTime, default=func.now())
+    total_price_pp= Column(Float)   # lo divido per adulti
+    updated_at = Column(DateTime, default=func.now())
     notified = Column(Boolean, default=False)
 
     outbound = relationship("Flight", foreign_keys=[outbound_flight_id])
     inbound = relationship("Flight", foreign_keys=[inbound_flight_id])
+    
+    profile = relationship("SearchProfile")

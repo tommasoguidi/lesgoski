@@ -1,7 +1,7 @@
 # test_setup.py
 import hashlib
 from database.db import init_db, SessionLocal
-from database.models import Flight, SearchProfile, Deal
+from database.models import Flight, SearchProfile, Deal, StrategyConfig
 from sqlalchemy.orm import joinedload
 from services.scanner import FlightScanner
 from services.matcher import DealMatcher
@@ -27,19 +27,20 @@ def run_test(scan: bool):
     
     print("\n--- Configurazione Utente ---")
     # L'utente vuole andare ovunque da Pisa spendendo max 50€
-    strategy_config = {
-        "out_days": {4: (17, 24), 5: (0, 12)},  # Ven-Sabato
-        "in_days": {0: (0, 12), 6: (15, 24)},   # Dom-Lunedi
-        "min_stay": 2,
-        "max_stay": 3
-    }
-    origins = ["PSA", "BLQ"]
+    strategy_config = StrategyConfig(
+        out_days={4: (17, 24), 5: (0, 12)},  # Ven-Sabato
+        in_days={0: (0, 12), 6: (15, 24)},   # Dom-Lunedi
+        min_stay=2,
+        max_stay=3
+    )
     profile = SearchProfile(
         name="Weekend Low Cost",
-        origins=origins,
-        max_price=70.0,
-        strategy_config=json.dumps(strategy_config)
+        max_price=80.0,
+        adults=2,
+        # allowed_destinations="KRK",
     )
+    profile.origins = ["PSA", "BLQ"]
+    profile.strategy_object = strategy_config
     db.add(profile)
     db.commit()
     print(f"Profilo di ricerca creato: {profile.name}")
@@ -47,7 +48,7 @@ def run_test(scan: bool):
     if scan:
         print("\n--- Scanning flights... ---")
         scanner = FlightScanner()
-        num_flights = scanner.run(origins=origins, days_horizon=30)
+        num_flights = scanner.run(origins=profile.origins, adults=profile.adults, days_horizon=60)
         print(f"Total flights found scanning: {num_flights}")
 
     print("\n--- Looking for deals... ---")
@@ -63,17 +64,19 @@ def run_test(scan: bool):
         saved_deals = db.query(Deal).options(
             joinedload(Deal.outbound),
             joinedload(Deal.inbound)
-        ).filter(Deal.profile_id == profile.id).all()
+        ).filter(Deal.profile_id == profile.id).order_by(
+            Deal.total_price_pp.asc()  # Use .desc() if you want most expensive first
+        ).all()
         for d in saved_deals:
-            print(f"💰 Deal #{d.id} | Total: {d.total_price} €")
+            print(f"💰 Deal #{d.id} | Total: {d.total_price_pp} €")
             
             # You can now access .outbound and .inbound attributes directly
             # because they were populated by the query above
             out = d.outbound
-            ret = d.inbound
+            inb = d.inbound
             
-            print(f"   🛫 Out: {out.origin} -> {out.destination} ({out.departure_time.strftime('%d/%m %H:%M')}) | {out.price}€")
-            print(f"   🛬 In:  {ret.origin} -> {ret.destination} ({ret.departure_time.strftime('%d/%m %H:%M')}) | {ret.price}€")
+            print(f"   🛫 Out: {out.origin_full} -> {out.destination_full} ({out.departure_time.strftime('%d/%m %H:%M')}) | {out.price}€")
+            print(f"   🛬 In:  {inb.origin_full} -> {inb.destination_full} ({inb.departure_time.strftime('%d/%m %H:%M')}) | {inb.price}€")
             print("-" * 40)
     else:
         print("❌ No matching flights found.")

@@ -2,13 +2,14 @@
 from sqlalchemy.orm import aliased
 from database.models import Flight, SearchProfile, Deal
 from database.db import SessionLocal
-from datetime import datetime
+from datetime import datetime, timedelta
 from core.schemas import StrategyConfig
+from sqlalchemy.orm import Session
 
 
 class DealMatcher:
-    def __init__(self):
-        self.db = SessionLocal()
+    def __init__(self, db: Session = None):
+        self.db = db or SessionLocal()
 
     def run(self, profile: SearchProfile) -> int:
         """
@@ -23,32 +24,39 @@ class DealMatcher:
             return []
 
         home_airports = profile.origins
+        adults = float(profile.adults)
         Outbound = aliased(Flight)
         Inbound = aliased(Flight)
 
-        # Build candidates
-        candidates = self.db.query(Outbound, Inbound).join(
+        # 1. Start with the base query and mandatory filters
+        query = self.db.query(Outbound, Inbound).join(
             Inbound,
             (Outbound.destination == Inbound.origin)
         ).filter(
-            # A -> B
             Outbound.origin.in_(home_airports),
-            
-            # B -> C (where C is also a home airport)
             Inbound.destination.in_(home_airports),
-            
-            # Price Filter
-            (Outbound.price + Inbound.price) <= profile.max_price,
-            
-            # Time Logic
+            (Outbound.price + Inbound.price) / adults <= profile.max_price * 1.25,  # Allow 25% tolerance
             Inbound.departure_time > Outbound.arrival_time
-        ).all()
+        )
+
+        # 3. Execute the query
+        candidates = query.all()
         
         num_matches = 0
         for out_f, in_f in candidates:
             if self._is_valid_match(out_f, in_f, config):
                 self._create_deal(profile, out_f, in_f)
                 num_matches += 1
+        
+        # 2. Prune old deals
+        # If a deal wasn't updated in this run, it means the flights no longer exist
+        # We'll use a 10-minute buffer to be safe
+        threshold = datetime.now() - timedelta(minutes=10)
+        self.db.query(Deal).filter(
+            Deal.profile_id == profile.id,
+            Deal.updated_at < threshold
+        ).delete()
+        
         self.db.commit()
         
         return num_matches
@@ -57,7 +65,7 @@ class DealMatcher:
         # 1. Check Stay Duration (Days)
         # Calculate difference in days
         delta = in_f.departure_time.date() - out_f.departure_time.date()
-        days_stay = delta.days + 1  # fammoc se sto sabato e domenica sono 2gg
+        days_stay = delta.days + 1  # fammoc se sto sabato e domenica sono 2gg (delta è 1)
         
         if not (config.min_stay <= days_stay <= config.max_stay):
             return False
@@ -83,14 +91,32 @@ class DealMatcher:
         return True
 
     def _create_deal(self, profile, out_f, in_f):
-        # Create Deal record in DB
-        # Create the Deal record
+        # Check if this deal already exists for this profile
+        existing = self.db.query(Deal).filter_by(
+            profile_id=profile.id,
+            outbound_flight_id=out_f.id,
+            inbound_flight_id=in_f.id
+        ).first()
+
+        adults = float(profile.adults)
+        if existing:
+            # c'era già
+            actual_price_pp = round((out_f.price + in_f.price) / adults, 2)
+            if existing.total_price_pp != actual_price_pp:
+                # prezzo cambiato, aggiorno
+                existing.total_price_pp = actual_price_pp
+                existing.updated_at = datetime.now()
+                existing.notified = False
+            else:
+                # non è cambiato il prezzo ma l'offerta c'è ancora
+                existing.updated_at = datetime.now()
+        else:
             deal = Deal(
                 profile_id=profile.id,
                 outbound_flight_id=out_f.id,
                 inbound_flight_id=in_f.id,
-                total_price=round(out_f.price + in_f.price, 2),
-                found_at=datetime.now(),
+                total_price_pp=round((out_f.price + in_f.price) / adults, 2),
+                updated_at=datetime.now(),
                 notified=False
             )
             self.db.add(deal)
