@@ -106,7 +106,6 @@ class DealMatcher:
             inbound_flight_id=in_f.id
         ).first()
 
-        adults = float(profile.adults)
         actual_price_pp = round(out_f.price + in_f.price, 2)
         if existing:
             existing.updated_at = datetime.now()
