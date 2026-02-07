@@ -1,0 +1,388 @@
+// webapp/static/scripts.js
+
+// ==========================================
+// DEALS PAGE — Filters
+// ==========================================
+
+function toggleFilters() {
+    const sheet = document.getElementById('filterSheet');
+    const trigger = document.getElementById('filterTrigger');
+    const backdrop = document.getElementById('sheetBackdrop');
+
+    sheet.classList.toggle('active');
+    trigger.classList.toggle('hidden');
+    backdrop.classList.toggle('active');
+}
+
+function toggleAllCountries(state) {
+    const checkboxes = document.querySelectorAll('.country-filter');
+    checkboxes.forEach(cb => cb.checked = state);
+    applyFilters();
+}
+
+function applyFilters() {
+    const destInput = document.getElementById('filterDest');
+    if (!destInput) return;
+    const query = destInput.value.toLowerCase();
+
+    const checkedCountries = new Set(
+        Array.from(document.querySelectorAll('.country-filter:checked')).map(cb => cb.value)
+    );
+
+    const cards = document.querySelectorAll('.deal-card');
+    let visible = 0;
+
+    cards.forEach(card => {
+        const cardDest = card.getAttribute('data-dest').toLowerCase();
+        const cardCountry = card.getAttribute('data-country');
+
+        const matchesDest = query === '' || cardDest.includes(query);
+        const matchesCountry = checkedCountries.has(cardCountry);
+
+        if (matchesDest && matchesCountry) {
+            card.style.display = 'block';
+            visible++;
+        } else {
+            card.style.display = 'none';
+        }
+    });
+
+    const counter = document.getElementById('visibleCount');
+    if (counter) counter.innerText = visible;
+
+    const noDealsMsg = document.getElementById('noDealsMsg');
+    if (noDealsMsg) noDealsMsg.style.display = (visible === 0) ? 'block' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    applyFilters();
+});
+
+function triggerUpdate(btn, profileId) {
+    const icon = btn.querySelector('.refresh-icon');
+    icon.classList.add('spinning');
+    btn.disabled = true;
+
+    fetch(`/update/${profileId}`, { method: 'POST' })
+        .then(res => {
+            if (res.ok) window.location.reload();
+            else {
+                alert("Update failed");
+                icon.classList.remove('spinning');
+                btn.disabled = false;
+            }
+        });
+}
+
+
+// ==========================================
+// PROFILE FORM — Airport Autocomplete
+// ==========================================
+
+let _airportCache = null;
+
+async function loadAirports() {
+    if (_airportCache) return _airportCache;
+    const res = await fetch('/api/airports');
+    _airportCache = await res.json();
+    return _airportCache;
+}
+
+function initAirportInput(inputId, hiddenId) {
+    const input = document.getElementById(inputId);
+    const hidden = document.getElementById(hiddenId);
+    if (!input || !hidden) return;
+
+    const wrapper = input.parentElement;
+    wrapper.style.position = 'relative';
+
+    // Create chips container
+    const chips = document.createElement('div');
+    chips.className = 'airport-chips';
+    wrapper.insertBefore(chips, input);
+
+    // Create dropdown
+    const dropdown = document.createElement('div');
+    dropdown.className = 'airport-dropdown';
+    wrapper.appendChild(dropdown);
+
+    // Flag to prevent blur from hiding dropdown during selection
+    let selecting = false;
+
+    // Load initial values from hidden field, then clear it so addChip can rebuild
+    const initial = hidden.value.split(',').filter(v => v.trim());
+    hidden.value = '';
+    initial.forEach(code => addChip(code.trim(), chips, hidden));
+
+    input.addEventListener('input', async () => {
+        const query = input.value.trim().toLowerCase();
+        if (query.length < 2) {
+            dropdown.innerHTML = '';
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        const airports = await loadAirports();
+        const matches = airports.filter(a =>
+            a.iata.toLowerCase().includes(query) ||
+            a.name.toLowerCase().includes(query) ||
+            a.city.toLowerCase().includes(query)
+        ).slice(0, 8);
+
+        dropdown.innerHTML = '';
+        if (matches.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        matches.forEach(a => {
+            const item = document.createElement('div');
+            item.className = 'airport-dropdown-item';
+            item.textContent = `${a.iata} - ${a.city} (${a.name})`;
+            item.addEventListener('mousedown', () => {
+                selecting = true;
+            });
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                addChip(a.iata, chips, hidden);
+                input.value = '';
+                dropdown.innerHTML = '';
+                dropdown.style.display = 'none';
+                selecting = false;
+                input.focus();
+            });
+            dropdown.appendChild(item);
+        });
+        dropdown.style.display = 'block';
+    });
+
+    input.addEventListener('blur', () => {
+        setTimeout(() => {
+            if (!selecting) {
+                dropdown.style.display = 'none';
+            }
+            selecting = false;
+        }, 150);
+    });
+}
+
+function addChip(code, chipsContainer, hiddenInput) {
+    const current = hiddenInput.value.split(',').filter(v => v.trim());
+    if (current.includes(code)) return;
+
+    const chip = document.createElement('span');
+    chip.className = 'airport-chip';
+    chip.innerHTML = `${code} <span class="chip-remove">&times;</span>`;
+
+    // Use event listener instead of inline onclick for robustness
+    chip.querySelector('.chip-remove').addEventListener('click', () => {
+        chip.remove();
+        const updated = hiddenInput.value.split(',').filter(v => v.trim() && v.trim() !== code);
+        hiddenInput.value = updated.join(',');
+    });
+
+    chipsContainer.appendChild(chip);
+    current.push(code);
+    hiddenInput.value = current.join(',');
+}
+
+
+// ==========================================
+// PROFILE FORM — Strategy Editor
+// ==========================================
+
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function initStrategyEditor() {
+    const editor = document.getElementById('strategy-editor');
+    if (!editor) return;
+
+    const hiddenField = document.getElementById('strategy-json-hidden');
+    const dataStr = editor.getAttribute('data-strategy');
+
+    // Parse existing strategy (edit mode) or use defaults
+    let existing = null;
+    if (dataStr) {
+        try { existing = JSON.parse(dataStr); } catch (e) { /* use defaults */ }
+    }
+
+    // Build outbound section
+    buildDaySection(editor, 'out', 'Outbound Departure', existing ? existing.out_days : { 4: [17, 24], 5: [0, 12] });
+
+    // Build inbound section
+    buildDaySection(editor, 'in', 'Return Departure', existing ? existing.in_days : { 0: [0, 12], 6: [15, 24] });
+
+    // Build stay duration section
+    const staySection = document.createElement('div');
+    staySection.className = 'strategy-section';
+    staySection.innerHTML = `
+        <label class="form-label text-white fw-bold">Stay Duration</label>
+        <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small">Min nights</span>
+                <input type="number" id="min-nights" class="form-control form-control-sm strategy-number-input"
+                       min="0" max="30" value="${existing ? existing.min_nights : 1}">
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small">Max nights</span>
+                <input type="number" id="max-nights" class="form-control form-control-sm strategy-number-input"
+                       min="0" max="30" value="${existing ? existing.max_nights : 2}">
+            </div>
+        </div>
+    `;
+    editor.appendChild(staySection);
+
+    // Listen for changes on everything
+    editor.addEventListener('change', () => syncStrategyJson());
+    editor.addEventListener('input', () => syncStrategyJson());
+
+    // Initial sync
+    syncStrategyJson();
+}
+
+function buildDaySection(container, prefix, label, activeDays) {
+    const section = document.createElement('div');
+    section.className = 'strategy-section mb-3';
+
+    // Label
+    const labelEl = document.createElement('label');
+    labelEl.className = 'form-label text-white fw-bold';
+    labelEl.textContent = label;
+    section.appendChild(labelEl);
+
+    // Day toggle buttons
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'd-flex flex-wrap gap-2 mb-2';
+
+    // Time rows container
+    const timeRows = document.createElement('div');
+    timeRows.id = `${prefix}-time-rows`;
+
+    for (let i = 0; i < 7; i++) {
+        const isActive = activeDays && (i.toString() in activeDays || i in activeDays);
+        const timeWindow = isActive ? (activeDays[i] || activeDays[i.toString()]) : [0, 24];
+
+        // Day toggle button
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-outline-secondary'} strategy-day-btn`;
+        btn.textContent = DAY_NAMES[i];
+        btn.dataset.day = i;
+        btn.dataset.prefix = prefix;
+        btn.dataset.active = isActive ? '1' : '0';
+
+        btn.addEventListener('click', () => {
+            const nowActive = btn.dataset.active === '1';
+            btn.dataset.active = nowActive ? '0' : '1';
+            btn.className = `btn btn-sm ${nowActive ? 'btn-outline-secondary' : 'btn-primary'} strategy-day-btn`;
+            const row = document.getElementById(`${prefix}-time-${i}`);
+            row.style.display = nowActive ? 'none' : 'flex';
+            syncStrategyJson();
+        });
+
+        btnGroup.appendChild(btn);
+
+        // Time window row with dual-range slider
+        const row = document.createElement('div');
+        row.id = `${prefix}-time-${i}`;
+        row.className = 'strategy-time-row';
+        row.style.display = isActive ? 'flex' : 'none';
+        row.innerHTML = `
+            <span class="strategy-day-label">${DAY_NAMES[i]}</span>
+            <span class="range-value" id="${prefix}-label-${i}">${timeWindow[0]}:00 – ${timeWindow[1]}:00</span>
+            <div class="range-slider-wrap">
+                <input type="range" class="range-slider range-from"
+                       id="${prefix}-from-${i}" min="0" max="24" step="1" value="${timeWindow[0]}">
+                <input type="range" class="range-slider range-to"
+                       id="${prefix}-to-${i}" min="0" max="24" step="1" value="${timeWindow[1]}">
+            </div>
+        `;
+        timeRows.appendChild(row);
+
+        // Wire up live label updates for this row's sliders
+        const fromSlider = row.querySelector('.range-from');
+        const toSlider = row.querySelector('.range-to');
+        const rangeLabel = row.querySelector('.range-value');
+        const updateLabel = () => {
+            let f = parseInt(fromSlider.value);
+            let t = parseInt(toSlider.value);
+            // Prevent from > to
+            if (f > t) { fromSlider.value = t; f = t; }
+            rangeLabel.textContent = `${f}:00 – ${t}:00`;
+        };
+        fromSlider.addEventListener('input', updateLabel);
+        toSlider.addEventListener('input', updateLabel);
+    }
+
+    section.appendChild(btnGroup);
+    section.appendChild(timeRows);
+    container.appendChild(section);
+}
+
+function syncStrategyJson() {
+    const hiddenField = document.getElementById('strategy-json-hidden');
+    if (!hiddenField) return;
+
+    const outDays = {};
+    const inDays = {};
+
+    for (let i = 0; i < 7; i++) {
+        // Outbound
+        const outBtn = document.querySelector(`[data-prefix="out"][data-day="${i}"]`);
+        if (outBtn && outBtn.dataset.active === '1') {
+            const from = parseInt(document.getElementById(`out-from-${i}`).value) || 0;
+            const to = parseInt(document.getElementById(`out-to-${i}`).value) || 24;
+            outDays[i] = [from, to];
+        }
+
+        // Inbound
+        const inBtn = document.querySelector(`[data-prefix="in"][data-day="${i}"]`);
+        if (inBtn && inBtn.dataset.active === '1') {
+            const from = parseInt(document.getElementById(`in-from-${i}`).value) || 0;
+            const to = parseInt(document.getElementById(`in-to-${i}`).value) || 24;
+            inDays[i] = [from, to];
+        }
+    }
+
+    const minNights = parseInt(document.getElementById('min-nights').value) || 0;
+    const maxNights = parseInt(document.getElementById('max-nights').value) || 0;
+
+    const strategy = {
+        out_days: outDays,
+        in_days: inDays,
+        min_nights: minNights,
+        max_nights: maxNights
+    };
+
+    hiddenField.value = JSON.stringify(strategy);
+}
+
+
+// ==========================================
+// DEALS PAGE — Notification Bell Toggle
+// ==========================================
+
+function toggleNotification(btn, profileId, destination) {
+    fetch('/api/notify-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            profile_id: profileId,
+            destination: destination
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        const icon = btn.querySelector('.bell-icon');
+        if (data.enabled) {
+            icon.innerHTML = '\u{1F514}';
+            icon.className = 'bell-icon bell-active';
+        } else {
+            icon.innerHTML = '\u{1F515}';
+            icon.className = 'bell-icon bell-inactive';
+        }
+    })
+    .catch(err => {
+        console.error('Failed to toggle notification:', err);
+    });
+}

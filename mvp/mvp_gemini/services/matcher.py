@@ -1,10 +1,16 @@
 # services/matcher.py
-from sqlalchemy.orm import aliased
+import logging
+import os
+from sqlalchemy.orm import aliased, Session
 from database.models import Flight, SearchProfile, Deal
 from database.db import SessionLocal
-from datetime import datetime, timedelta
+from datetime import datetime
 from core.schemas import StrategyConfig
-from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+# Tolerance: allow flights up to HOUR_TOLERANCE hours outside the user's time window
+HOUR_TOLERANCE = int(os.getenv("HOUR_TOLERANCE", 1))
 
 
 class DealMatcher:
@@ -13,75 +19,81 @@ class DealMatcher:
 
     def run(self, profile: SearchProfile) -> int:
         """
-        Reconstructs round trips from the atomic flights table
-        based on profile rules.
-        returns number of deals found.
+        Reconstructs round trips from the shared flights table
+        based on profile rules (origins, adults, strategy, price).
+        Returns number of deals found.
         """
+        match_start = datetime.now()
+
         # Load constraints
         config = profile.strategy_object
         if not config:
-            print(f"⚠️ Profile {profile.name} has no strategy config.")
-            return []
+            logger.warning(f"Profile {profile.name} has no strategy config.")
+            return 0
 
         home_airports = profile.origins
         adults = float(profile.adults)
         Outbound = aliased(Flight)
         Inbound = aliased(Flight)
 
-        # 1. Start with the base query and mandatory filters
-        candidates = self.db.query(Outbound, Inbound).join(
+        # Query the shared flights table — filter by origins and adults
+        query = self.db.query(Outbound, Inbound).join(
             Inbound,
             (Outbound.destination == Inbound.origin)
         ).filter(
             Outbound.origin.in_(home_airports),
+            Outbound.adults == profile.adults,
             Inbound.destination.in_(home_airports),
-            (Outbound.price + Inbound.price) / adults <= profile.max_price * 1.25,  # Allow 25% tolerance
+            Inbound.adults == profile.adults,
+            (Outbound.price + Inbound.price) / adults <= profile.max_price * 1.25,
             Inbound.departure_time > Outbound.arrival_time
-        ).all()
-        
+        )
+
+        # Apply allowed destinations filter if configured
+        allowed = profile.allowed_destinations
+        if allowed:
+            query = query.filter(Outbound.destination.in_(allowed))
+
+        candidates = query.all()
+
         num_matches = 0
         for out_f, in_f in candidates:
             if self._is_valid_match(out_f, in_f, config):
                 self._create_deal(profile, out_f, in_f)
                 num_matches += 1
         self.db.flush()
-        
-        # 2. Prune old deals
-        # If a deal wasn't updated in this run, it means the flights no longer exist
-        # We'll use a 10-minute buffer to be safe
-        threshold = datetime.now() - timedelta(minutes=10)
+
+        # Prune deals that were not refreshed during this matching run.
         self.db.query(Deal).filter(
             Deal.profile_id == profile.id,
-            Deal.updated_at < threshold
+            Deal.updated_at < match_start
         ).delete()
-        
+
         return num_matches
 
     def _is_valid_match(self, out_f: Flight, in_f: Flight, config: StrategyConfig) -> bool:
-        # 1. Check Stay Duration (Days)
-        # Calculate difference in days
-        delta = in_f.departure_time.date() - out_f.departure_time.date()
-        days_stay = delta.days + 1  # fammoc se sto sabato e domenica sono 2gg (delta è 1)
-        
-        if not (config.min_stay <= days_stay <= config.max_stay):
+        # 1. Check Stay Duration (Nights)
+        nights = (in_f.departure_time.date() - out_f.departure_time.date()).days
+
+        if not (config.min_nights <= nights <= config.max_nights):
             return False
 
-        # 2. Check Outbound Day & Time
+        # 2. Check Outbound Day & Time (with tolerance)
         out_dow = out_f.departure_time.weekday()
         if out_dow not in config.out_days:
             return False
-        
+
         min_h, max_h = config.out_days[out_dow]
-        if not (min_h <= out_f.departure_time.hour < max_h):
+        if not (max(0, min_h - HOUR_TOLERANCE) <= out_f.departure_time.hour < min(24, max_h + HOUR_TOLERANCE)):
             return False
 
-        # 3. Check Inbound Day & Time
+        # 3. Check Inbound Day & Time (with tolerance)
         in_dow = in_f.departure_time.weekday()
         if in_dow not in config.in_days:
             return False
-            
+
         min_h, max_h = config.in_days[in_dow]
-        if not (min_h <= in_f.departure_time.hour < max_h):
+        if not (max(0, min_h - HOUR_TOLERANCE) <= in_f.departure_time.hour < min(24, max_h + HOUR_TOLERANCE)):
             return False
 
         return True

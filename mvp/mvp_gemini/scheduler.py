@@ -1,49 +1,126 @@
 # scheduler.py
+import logging
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import schedule
+from dotenv import load_dotenv
+load_dotenv()
 from datetime import datetime, timedelta
 from database.db import SessionLocal
-from database.models import SearchProfile
+from database.models import SearchProfile, Flight, ScanLog
 from services.orchestrator import update_single_profile
+from services.notifier import send_daily_digest
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+MAX_WORKERS = 3
+
+# Backend globals
+UPDATE_INTERVAL_MINUTES = int(os.getenv("UPDATE_INTERVAL_MINUTES", 180))
+FLIGHT_STALENESS_HOURS = int(os.getenv("FLIGHT_STALENESS_HOURS", 24))
+
+
+def _update_profile_thread(profile_id: int, profile_name: str):
+    """Run a single profile update in its own thread with a fresh DB session."""
+    db = SessionLocal()
+    try:
+        update_single_profile(db, profile_id)
+    except Exception as e:
+        logger.error(f"Error updating profile {profile_name}: {e}", exc_info=True)
+    finally:
+        db.close()
+
 
 def check_and_run_updates():
     """
     Polls the database for profiles that are due for an update.
+    A profile is due if updated_at is NULL or older than UPDATE_INTERVAL_MINUTES.
+    Runs due profiles in parallel using a thread pool.
     """
     db = SessionLocal()
     try:
         profiles = db.query(SearchProfile).filter(SearchProfile.is_active == True).all()
-        
         now = datetime.now()
-        
+        threshold = now - timedelta(minutes=UPDATE_INTERVAL_MINUTES)
+
+        due_profiles = []
         for profile in profiles:
-            interval = profile.update_interval_hours or 12
-            last_run = profile.updated_at
-            
-            is_due = False
-            if not last_run:
-                is_due = True # Never run before
-            elif (now - last_run) > timedelta(hours=interval):
-                is_due = True
-            
-            if is_due:
-                print(f"⏰ Triggering scheduled update for {profile.name} (Last run: {last_run})")
-                try:
-                    update_single_profile(db, profile.id)
-                except Exception as e:
-                    print(f"❌ Error updating profile {profile.name}: {e}")
-                    
+            if not profile.updated_at or profile.updated_at < threshold:
+                due_profiles.append((profile.id, profile.name))
+
     except Exception as e:
-        print(f"Error in scheduler loop: {e}")
+        logger.error(f"Error in scheduler loop: {e}", exc_info=True)
+        return
     finally:
         db.close()
 
+    if not due_profiles:
+        return
+
+    logger.info(f"Scheduling updates for {len(due_profiles)} profile(s)")
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_update_profile_thread, pid, name): name
+            for pid, name in due_profiles
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Thread for {name} raised: {e}", exc_info=True)
+
+
+def prune_stale_data():
+    """Remove stale flights and old scan_log entries."""
+    db = SessionLocal()
+    try:
+        now = datetime.now()
+
+        # Prune flights older than FLIGHT_STALENESS_HOURS
+        stale_threshold = now - timedelta(hours=FLIGHT_STALENESS_HOURS)
+        deleted_flights = db.query(Flight).filter(
+            Flight.updated_at < stale_threshold
+        ).delete()
+
+        # Prune scan_log entries older than 7 days
+        old_logs = db.query(ScanLog).filter(
+            ScanLog.scanned_at < now - timedelta(days=7)
+        ).delete()
+
+        db.commit()
+        if deleted_flights or old_logs:
+            logger.info(f"Pruned {deleted_flights} stale flights, {old_logs} old scan logs")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Pruning failed: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+def run_daily_digest():
+    """Send a daily summary of the best deals across all profiles."""
+    db = SessionLocal()
+    try:
+        send_daily_digest(db)
+    except Exception as e:
+        logger.error(f"Daily digest failed: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
-    print("Starting Polling Scheduler...")
-    
-    # Check every minute if any profile is due
-    schedule.every(1).minutes.do(check_and_run_updates)
-    
+    logger.info("Starting Polling Scheduler...")
+
+    schedule.every(5).minutes.do(check_and_run_updates)
+    schedule.every(1).hours.do(prune_stale_data)
+    schedule.every().day.at("08:00").do(run_daily_digest)
+
     # Run once immediately on startup to catch up
     check_and_run_updates()
 

@@ -1,0 +1,94 @@
+<!-- webapp/templates/profile_form.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header border-bottom border-secondary p-4">
+                    <h2 class="h4 mb-0 text-white">{{ 'Create New Profile' if is_new else 'Edit Profile: ' + profile.name }}</h2>
+                </div>
+                <div class="card-body p-4">
+                    <form action="/profile/save" method="POST">
+                        {% if not is_new %}
+                        <input type="hidden" name="profile_id" value="{{ profile.id }}">
+                        {% endif %}
+
+                        <div class="mb-3">
+                            <label class="form-label text-white">Profile Name</label>
+                            <input type="text" name="name" class="form-control"
+                                   value="{{ profile.name if profile else '' }}"
+                                   required placeholder="e.g. Weekend Escape">
+                        </div>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label text-white">Origins</label>
+                                <div class="airport-input-wrapper">
+                                    <input type="hidden" name="origins" id="origins-hidden"
+                                           value="{{ profile.origins|join(',') if profile else '' }}">
+                                    <input type="text" id="origins-input" class="form-control"
+                                           placeholder="Search airport..." autocomplete="off">
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label text-white">Max Price (pp)</label>
+                                <input type="number" step="0.1" name="max_price" class="form-control"
+                                       value="{{ profile.max_price if profile else 100 }}" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label text-white">Adults</label>
+                                <input type="number" name="adults" class="form-control"
+                                       value="{{ profile.adults if profile else 1 }}" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-white">Allowed Destinations (optional)</label>
+                            <div class="airport-input-wrapper">
+                                <input type="hidden" name="allowed_destinations" id="destinations-hidden"
+                                       value="{{ profile.allowed_destinations|join(',') if profile and profile.allowed_destinations else '' }}">
+                                <input type="text" id="destinations-input" class="form-control"
+                                       placeholder="Search airport... (leave empty for all)" autocomplete="off">
+                            </div>
+                            <div class="form-text text-muted">Leave empty to search all destinations.</div>
+                        </div>
+
+                        <!-- Strategy Visual Editor -->
+                        <div class="mb-3">
+                            <textarea name="strategy_json" id="strategy-json-hidden" style="display:none;" required></textarea>
+                            <div id="strategy-editor"
+                                 data-strategy="{{ profile._strategy_object if profile else '' }}">
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center">
+                            <a href="/" class="btn btn-outline-secondary">Cancel</a>
+                            <div>
+                                {% if not is_new %}
+                                <button type="button" class="btn btn-outline-danger me-2"
+                                        onclick="if(confirm('Delete this profile?')) document.getElementById('delete-form').submit();">
+                                    Delete
+                                </button>
+                                {% endif %}
+                                <button type="submit" class="btn btn-primary fw-bold px-4">Save & Scan</button>
+                            </div>
+                        </div>
+                    </form>
+                    {% if not is_new %}
+                    <form id="delete-form" action="/profile/{{ profile.id }}/delete" method="POST" style="display:none;"></form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        initAirportInput('origins-input', 'origins-hidden');
+        initAirportInput('destinations-input', 'destinations-hidden');
+        initStrategyEditor();
+    });
+</script>
+{% endblock %}

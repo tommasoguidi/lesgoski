@@ -20,7 +20,7 @@ class FlightSchema(BaseModel):
 
     @property
     def unique_id(self) -> str:
-        raw = f"{self.flight_number}_{self.departure_time.isoformat()}_{self.adults}"
+        raw = f"{self.origin}_{self.destination}_{self.departure_time.isoformat()}_{self.adults}"
         return hashlib.md5(raw.encode()).hexdigest()
 
 
@@ -43,8 +43,8 @@ class StrategyConfig(BaseModel):
     out_days: Dict[int, TimeWindow]
     in_days: Dict[int, TimeWindow]
     
-    min_stay: int = Field(..., ge=0) # Must be >= 0
-    max_stay: int = Field(..., ge=0)
+    min_nights: int = Field(..., ge=0)
+    max_nights: int = Field(..., ge=0)
 
     @field_validator('out_days', 'in_days', mode='before')
     @classmethod
@@ -73,6 +73,6 @@ class StrategyConfig(BaseModel):
     
     @model_validator(mode='after')
     def check_stay_bounds(self):
-        if self.min_stay > self.max_stay:
-            raise ValueError("min_stay cannot be greater than max_stay")
+        if self.min_nights > self.max_nights:
+            raise ValueError("min_nights cannot be greater than max_nights")
         return self

@@ -1,51 +1,45 @@
 # test_setup.py
-import hashlib
-from database.db import init_db, SessionLocal
-from database.models import Flight, SearchProfile, Deal, StrategyConfig
-from sqlalchemy.orm import joinedload
-from services.scanner import FlightScanner
-from services.matcher import DealMatcher
-from services.orchestrator import update_single_profile
+import logging
 import argparse
-import json
+from database.db import init_db, SessionLocal
+from database.models import SearchProfile
+from core.schemas import StrategyConfig
+from services.orchestrator import update_single_profile
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-def generate_flight_id(flight_num, dep_time):
-    raw = f"{flight_num}_{dep_time.isoformat()}"
-    return hashlib.md5(raw.encode()).hexdigest()
 
 def run_test(scan: bool):
-    print("--- Inizializzazione Database ---")
+    logger.info("Initializing database...")
     init_db()
     db = SessionLocal()
-    print("Database creato/connesso con successo.")
-    
-    print("\n--- Configurazione Utente ---")
-    # L'utente vuole andare ovunque da Pisa spendendo max 50€
+
     strategy_config = StrategyConfig(
-        out_days={4: (17, 24), 5: (0, 12)},  # Ven-Sabato
-        in_days={0: (0, 12), 6: (15, 24)},   # Dom-Lunedi
-        min_stay=2,
-        max_stay=3
+        out_days={4: (17, 24), 5: (0, 12)},  # Fri-Sat
+        in_days={0: (0, 12), 6: (15, 24)},   # Sun-Mon
+        min_nights=1,
+        max_nights=2
     )
     profile = SearchProfile(
         name="Weekend Low Cost",
         max_price=80.0,
         adults=2,
-        lookup_horizon=60,
-        # allowed_destinations="KRK",
     )
     profile.origins = ["PSA", "BLQ"]
     profile.strategy_object = strategy_config
     db.add(profile)
     db.commit()
-    print(f"Profilo di ricerca creato: {profile.name}")
+    logger.info(f"Search profile created: {profile.name}")
 
     update_single_profile(db, profile.id)
     db.close()
 
 if __name__ == "__main__":
-    args = argparse.ArgumentParser(description="Run flight scanner and matcher test.")
-    args.add_argument("--scan", action="store_true", help="Run the flight scanner.")
-    args = args.parse_args()
+    parser = argparse.ArgumentParser(description="Run flight scanner and matcher test.")
+    parser.add_argument("--scan", action="store_true", help="Run the flight scanner.")
+    args = parser.parse_args()
     run_test(scan=args.scan)

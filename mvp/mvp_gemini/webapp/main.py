@@ -1,152 +1,119 @@
-# mvp_gemini/webapp/main.py
-from fastapi import FastAPI, Depends, Request
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session, joinedload
-from database.db import get_db
-from database.models import Deal, Flight
+# webapp/main.py
+import csv
+import json
+import logging
+import os
 from collections import defaultdict
-import urllib.parse
+from functools import lru_cache
+from dotenv import load_dotenv
+load_dotenv()
+from webapp.utils import get_country_code, get_booking_links
+from fastapi import FastAPI, Depends, Request, Form, BackgroundTasks
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session, joinedload
+from database.db import get_db, init_db, SessionLocal
+from database.models import Deal, SearchProfile
+from core.schemas import StrategyConfig
+from services.orchestrator import update_single_profile
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+# Ensure DB tables exist (simple way for MVP)
+init_db()
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="webapp/static"), name="static")
 
 templates = Jinja2Templates(directory="webapp/templates")
-
-# --- HELPER FUNCTIONS ---
-
-def get_country_code(full_name: str) -> str:
-    if not full_name: return "EU"
-    country_name = full_name.split(',')[-1].strip().lower()
-    mapping = {
-        "italy": "IT", "united kingdom": "GB", "spain": "ES", 
-        "france": "FR", "germany": "DE", "ireland": "IE", 
-        "portugal": "PT", "belgium": "BE", "netherlands": "NL",
-        "poland": "PL", "greece": "GR", "hungary": "HU",
-        "austria": "AT", "czech republic": "CZ", "switzerland": "CH",
-        "morocco": "MA", "malta": "MT", "croatia": "HR", "denmark": "DK",
-        "sweden": "SE", "norway": "NO", "finland": "FI", "lithuania": "LT",
-        "latvia": "LV", "estonia": "EE", "slovakia": "SK", "slovenia": "SI",
-        "bulgaria": "BG", "romania": "RO", "cyprus": "CY", "luxembourg": "LU",
-        "serbia": "RS", "bosnia and herzegovina": "BA", "north macedonia": "MK",
-        "albania": "AL", "montenegro": "ME", "ukraine": "UA", "belarus": "BY",
-        "turkey": "TR", "russia": "RU",
-    }
-    return mapping.get(country_name, "EU")
-
-def _build_ryanair_url(flight: Flight, adults: int, return_flight: Flight = None):
-    """
-    Constructs the URL. If return_flight is provided, it's a round trip.
-    Otherwise, it's a one-way trip.
-    """
-    d_out = flight.departure_time.strftime('%Y-%m-%d')
-    orig = flight.origin
-    dest = flight.destination
-    
-    params = {
-        "adults": adults,
-        "teens": 0, "children": 0, "infants": 0,
-        "dateOut": d_out,
-        "isConnectedFlight": "false",
-        "discount": 0, "promoCode": "",
-        "originIata": orig,
-        "destinationIata": dest,
-        "tpAdults": adults,
-        "tpTeens": 0, "tpChildren": 0, "tpInfants": 0,
-        "tpStartDate": d_out,
-        "tpDiscount": 0, "tpPromoCode": "",
-        "tpOriginIata": orig,
-        "tpDestinationIata": dest
-    }
-
-    if return_flight:
-        # Standard Round Trip
-        d_in = return_flight.departure_time.strftime('%Y-%m-%d')
-        params.update({
-            "isReturn": "true",
-            "dateIn": d_in,
-            "tpEndDate": d_in
-        })
-    else:
-        # One Way
-        params.update({
-            "isReturn": "false",
-            "dateIn": "",
-            "tpEndDate": ""
-        })
-
-    base_url = "https://www.ryanair.com/it/it/trip/flights/select"
-    return f"{base_url}?{urllib.parse.urlencode(params)}"
-
-def get_booking_links(deal: Deal) -> list[dict]:
-    """
-    Returns a list of button definitions: [{'label': '...', 'url': '...'}]
-    """
-    adults = deal.profile.adults if deal.profile.adults else 1
-    
-    # Check if standard round trip (A->B and B->A)
-    is_standard = (deal.outbound.destination == deal.inbound.origin) and \
-                  (deal.outbound.origin == deal.inbound.destination)
-    
-    if is_standard:
-        return [{
-            "label": "Book Now", 
-            "url": _build_ryanair_url(deal.outbound, adults, deal.inbound),
-            "class": "btn-light" 
-        }]
-    else:
-        # Different airports: Two separate one-way links
-        return [
-            {
-                "label": "Book Outbound", 
-                "url": _build_ryanair_url(deal.outbound, adults),
-                "class": "btn-outline-primary"
-            },
-            {
-                "label": "Book Return", 
-                "url": _build_ryanair_url(deal.inbound, adults),
-                "class": "btn-outline-secondary"
-            }
-        ]
-
-# Register helper
 templates.env.globals.update(booking_links=get_booking_links)
 
+@lru_cache(maxsize=1)
+def _load_airports() -> list[dict]:
+    """Load airport data from CSV, keeping only essential fields."""
+    csv_path = os.path.join(os.path.dirname(__file__), "assets", "filtered_airports.csv")
+    airports = []
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            iata = row.get("iata_code", "").strip()
+            if not iata:
+                continue
+            airports.append({
+                "iata": iata,
+                "name": row.get("name", "").strip(),
+                "city": row.get("municipality", "").strip(),
+                "country": row.get("iso_country", "").strip(),
+            })
+    return airports
+
+def run_background_update(profile_id: int):
+    db = SessionLocal()
+    try:
+        update_single_profile(db, profile_id)
+    except Exception as e:
+        logger.error(f"Background update failed: {e}", exc_info=True)
+    finally:
+        db.close()
 
 # --- ROUTES ---
-
 @app.get("/", response_class=HTMLResponse)
-def view_deals(request: Request, db: Session = Depends(get_db)):
+def view_deals(request: Request, profile_id: int = None, db: Session = Depends(get_db)):
+    all_profiles = db.query(SearchProfile).filter(SearchProfile.is_active == True).all()
+    
+    # Logic: No profiles -> Go to create
+    if not all_profiles:
+        return RedirectResponse("/profile/new", status_code=303)
+
+    # Logic: No specific profile requested -> Load first
+    current_profile = None
+    if profile_id:
+        current_profile = db.get(SearchProfile,profile_id)
+    
+    if not current_profile:
+        # Fallback to the first one available
+        return RedirectResponse(f"/?profile_id={all_profiles[0].id}", status_code=303)
+
+    # Fetch deals for this profile
     deals = db.query(Deal).options(
         joinedload(Deal.outbound),
         joinedload(Deal.inbound),
         joinedload(Deal.profile)
-    ).all()
+    ).filter(Deal.profile_id == current_profile.id).all()
 
-    # Extract Profile Name (assuming single profile usage for MVP)
-    profile_name = "Deals"
-    if deals:
-        profile_name = deals[0].profile.name
-
+    # Grouping Data
     grouped = defaultdict(list)
+    unique_countries = set()
+    unique_destinations = set()
+
     for deal in deals:
         if deal.outbound:
-            grouped[deal.outbound.destination].append(deal)
+            dest_code = deal.outbound.destination
+            grouped[dest_code].append(deal)
+            
+            full_name = deal.outbound.destination_full or dest_code
+            country_code = get_country_code(full_name)
+            unique_countries.add(country_code)
+            unique_destinations.add(dest_code)
 
     view_data = []
     for dest_code, deal_list in grouped.items():
         if not deal_list: continue
-        
         deal_list.sort(key=lambda x: x.total_price_pp)
         first = deal_list[0]
-        
         full_name = first.outbound.destination_full or dest_code
-        city_airport = full_name.split(',')[0].strip()
         country_code = get_country_code(full_name)
 
         view_data.append({
             "destination_code": dest_code,
-            "destination_name": city_airport,
-            "country_flag": f"https://flagsapi.com/{country_code.upper()}/flat/64.png",
+            "destination_name": full_name.split(',')[0].strip(),
+            "country_code": get_country_code(full_name),
+            "country_flag": f"https://flagsapi.com/{get_country_code(full_name).upper()}/shiny/64.png",
             "best_deal": first,
             "other_deals": deal_list[1:]
         })
@@ -154,7 +121,121 @@ def view_deals(request: Request, db: Session = Depends(get_db)):
     view_data.sort(key=lambda x: x["best_deal"].total_price_pp)
 
     return templates.TemplateResponse("deals.html", {
-        "request": request, 
+        "request": request,
         "destinations": view_data,
-        "profile_name": profile_name
+        "current_profile": current_profile,
+        "all_profiles": all_profiles,
+        "filter_countries": sorted(list(unique_countries)),
+        "filter_destinations": sorted(list(unique_destinations)),
+        "notify_destinations": current_profile.notify_destinations if current_profile else [],
     })
+
+@app.get("/profile/new", response_class=HTMLResponse)
+def new_profile_form(request: Request):
+    return templates.TemplateResponse("profile_form.html", {
+        "request": request, "profile": None, "is_new": True
+    })
+
+@app.get("/profile/{pid}", response_class=HTMLResponse)
+def edit_profile_form(request: Request, pid: int, db: Session = Depends(get_db)):
+    profile = db.get(SearchProfile,pid)
+    return templates.TemplateResponse("profile_form.html", {
+        "request": request, "profile": profile, "is_new": False
+    })
+
+@app.post("/profile/save")
+async def save_profile(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    profile_id: int = Form(None),
+    name: str = Form(...),
+    origins: str = Form(...),
+    allowed_destinations: str = Form(""),
+    max_price: float = Form(...),
+    adults: int = Form(...),
+    strategy_json: str = Form(...)
+):
+    # Parse & Validate
+    origin_list = [o.strip().upper() for o in origins.split(',') if o.strip()]
+    if not origin_list:
+        return HTMLResponse("At least one origin airport is required.", status_code=400)
+    dest_list = [d.strip().upper() for d in allowed_destinations.split(',') if d.strip()]
+    try:
+        strategy_dict = json.loads(strategy_json)
+        StrategyConfig(**strategy_dict) 
+    except Exception as e:
+        return HTMLResponse(f"Invalid Strategy JSON: {e}", status_code=400)
+
+    if profile_id:
+        profile = db.get(SearchProfile,profile_id)
+    else:
+        profile = SearchProfile()
+        db.add(profile)
+
+    profile.name = name
+    profile.origins = origin_list
+    profile.allowed_destinations = dest_list
+    profile.max_price = max_price
+    profile.adults = adults
+    profile._strategy_object = strategy_json
+    
+    db.commit()
+    db.refresh(profile)
+    
+    # TRIGGER IMMEDIATE UPDATE
+    # This runs in the background so the user gets redirected immediately
+    background_tasks.add_task(run_background_update, profile.id)
+    
+    return RedirectResponse(f"/?profile_id={profile.id}", status_code=303)
+
+@app.post("/update/{profile_id}")
+def trigger_manual_update(profile_id: int):
+    try:
+        run_background_update(profile_id)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Manual update failed: {e}", exc_info=True)
+        return HTMLResponse(content=f"Update failed: {e}", status_code=500)
+
+@app.post("/profile/{pid}/delete")
+def delete_profile(pid: int, db: Session = Depends(get_db)):
+    profile = db.get(SearchProfile, pid)
+    if profile:
+        profile.is_active = False
+        db.commit()
+    return RedirectResponse("/", status_code=303)
+
+@app.get("/api/airports")
+def get_airports():
+    return _load_airports()
+
+@app.post("/api/notify-toggle")
+async def toggle_notify_destination(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Toggle immediate notifications for a specific destination."""
+    body = await request.json()
+    profile_id = body.get("profile_id")
+    destination = body.get("destination")
+
+    if not profile_id or not destination:
+        return {"error": "profile_id and destination required"}
+
+    profile = db.get(SearchProfile, int(profile_id))
+    if not profile:
+        return {"error": "Profile not found"}
+
+    current = profile.notify_destinations
+    if destination in current:
+        current.remove(destination)
+        enabled = False
+    else:
+        current.append(destination)
+        enabled = True
+
+    profile.notify_destinations = current
+    db.commit()
+
+    return {"destination": destination, "enabled": enabled}
