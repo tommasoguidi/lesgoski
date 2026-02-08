@@ -1,0 +1,33 @@
+[project]
+name = "lesgoski"
+version = "0.1.0"
+description = "Flight deal scanner and notification system"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy>=2.0.30",
+    "pydantic>=2.8.0",
+    "jinja2>=3.1.4",
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.32.0",
+    "schedule>=1.2.0",
+    "ryanair-py @ git+https://github.com/tommasoguidi/ryanair-py-masa.git@develop",
+]
+
+[project.scripts]
+lesgoski-web = "lesgoski.webapp.app:main"
+lesgoski-scheduler = "lesgoski.scheduler.runner:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lesgoski"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
