@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from lesgoski.webapp.utils import get_country_code, get_booking_links
+from lesgoski.services.airports import get_nearby_set
 from fastapi import FastAPI, Depends, Request, Form, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -86,36 +87,78 @@ def view_deals(request: Request, profile_id: int = None, db: Session = Depends(g
         joinedload(Deal.profile)
     ).filter(Deal.profile_id == current_profile.id).all()
 
-    # Grouping Data
+    # Grouping Data — metro-area aware
+    # Each deal appears in all nearby airport groups so that e.g.
+    # a PSA→GRO / BCN→PSA deal shows up under both GRO and BCN.
     grouped = defaultdict(list)
     unique_countries = set()
     unique_destinations = set()
+    # Cache full names: first encountered full_name wins for each code
+    dest_full_names: dict[str, str] = {}
 
     for deal in deals:
-        if deal.outbound:
-            dest_code = deal.outbound.destination
-            grouped[dest_code].append(deal)
+        if not deal.outbound:
+            continue
 
-            full_name = deal.outbound.destination_full or dest_code
+        out_dest = deal.outbound.destination
+        in_origin = deal.inbound.origin if deal.inbound else out_dest
+
+        # All airports in the metro area of the destination side
+        area_codes = get_nearby_set(out_dest) | get_nearby_set(in_origin)
+
+        # Only keep codes that actually appear as outbound destinations
+        # in this profile's deals (avoid phantom groups for airports
+        # we have no flights to)
+        for code in area_codes:
+            grouped[code].append(deal)
+
+        # Track full names for the actual airports in this deal
+        for code, full_name in [
+            (out_dest, deal.outbound.destination_full or out_dest),
+            (in_origin, (deal.inbound.origin_full if deal.inbound else None) or in_origin),
+        ]:
+            if code not in dest_full_names:
+                dest_full_names[code] = full_name
             country_code = get_country_code(full_name)
             unique_countries.add(country_code)
-            unique_destinations.add(dest_code)
+            unique_destinations.add(code)
+
+    # Only show groups that have at least one deal with a direct flight
+    # to/from that airport (avoid empty groups for nearby-only codes)
+    direct_codes = set()
+    for deal in deals:
+        if deal.outbound:
+            direct_codes.add(deal.outbound.destination)
+        if deal.inbound:
+            direct_codes.add(deal.inbound.origin)
 
     view_data = []
     for dest_code, deal_list in grouped.items():
-        if not deal_list: continue
-        deal_list.sort(key=lambda x: x.total_price_pp)
-        first = deal_list[0]
-        full_name = first.outbound.destination_full or dest_code
+        if not deal_list:
+            continue
+        if dest_code not in direct_codes:
+            continue
+
+        # Deduplicate (a deal can be added multiple times via area_codes)
+        seen_ids = set()
+        unique_deals = []
+        for d in deal_list:
+            if d.id not in seen_ids:
+                seen_ids.add(d.id)
+                unique_deals.append(d)
+        unique_deals.sort(key=lambda x: x.total_price_pp)
+
+        first = unique_deals[0]
+        full_name = dest_full_names.get(dest_code, dest_code)
         country_code = get_country_code(full_name)
 
         view_data.append({
             "destination_code": dest_code,
             "destination_name": full_name.split(',')[0].strip(),
-            "country_code": get_country_code(full_name),
-            "country_flag": f"https://flagsapi.com/{get_country_code(full_name).upper()}/shiny/64.png",
+            "country_code": country_code,
+            "country_flag": f"https://flagsapi.com/{country_code.upper()}/shiny/64.png",
             "best_deal": first,
-            "other_deals": deal_list[1:]
+            "other_deals": unique_deals[1:]
         })
 
     view_data.sort(key=lambda x: x["best_deal"].total_price_pp)

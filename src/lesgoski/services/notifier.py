@@ -3,7 +3,7 @@ import logging
 import requests
 from sqlalchemy.orm import Session, joinedload
 from lesgoski.database.models import Deal, SearchProfile
-from lesgoski.config import NTFY_TOPIC
+from lesgoski.config import NTFY_TOPIC, WEBAPP_URL
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +25,23 @@ def _build_booking_url(deal: Deal) -> str:
     )
 
 
+def _webapp_deal_url(profile_id: int, dest_code: str) -> str:
+    """Deep-link to a specific deal card in the webapp."""
+    return f"{WEBAPP_URL}/?profile_id={profile_id}#deal-{dest_code}"
+
+
+def _webapp_profile_url(profile_id: int) -> str:
+    """Link to the webapp filtered to a specific profile."""
+    return f"{WEBAPP_URL}/?profile_id={profile_id}"
+
+
 def notify_new_deals(db: Session, profile: SearchProfile) -> int:
     """
-    Send an immediate push notification for new deals that are
-    within budget and haven't been notified yet.
-    Returns the number of notifications sent.
+    Send push notifications for new deals:
+    1. Per-destination notifications for "belled" destinations (click → webapp deep-link)
+    2. A generic summary notification if there are un-belled new deals
+
+    Returns total number of notifications sent.
     """
     if not NTFY_URL:
         logger.warning("NTFY_TOPIC not set, skipping notifications.")
@@ -50,29 +62,20 @@ def notify_new_deals(db: Session, profile: SearchProfile) -> int:
     if not new_deals:
         return 0
 
-    # Group deals by destination for a cleaner notification
+    # Group deals by destination — keep the cheapest (already sorted)
     by_dest = {}
     for deal in new_deals:
         dest = deal.outbound.destination
         if dest not in by_dest:
-            by_dest[dest] = deal  # keep the cheapest (already sorted)
+            by_dest[dest] = deal
 
-    # Only send immediate notifications for destinations the user has "belled"
-    notify_dests = profile.notify_destinations
-    if notify_dests:
-        by_dest = {dest: deal for dest, deal in by_dest.items() if dest in notify_dests}
-    else:
-        # No bells toggled → no immediate notifications (opt-in model)
-        by_dest = {}
+    notify_dests = set(profile.notify_destinations or [])
+    sent = 0
 
-    if not by_dest:
-        # Mark all as notified even if we didn't send (avoids re-checking next run)
-        for deal in new_deals:
-            deal.notified = True
-        db.flush()
-        return 0
+    # --- Belled destination notifications (click → webapp deep-link) ---
+    belled = {dest: deal for dest, deal in by_dest.items() if dest in notify_dests}
 
-    for dest, deal in by_dest.items():
+    for dest, deal in belled.items():
         out = deal.outbound
         inb = deal.inbound
         dest_name = (out.destination_full or dest).split(",")[0].strip()
@@ -81,7 +84,7 @@ def notify_new_deals(db: Session, profile: SearchProfile) -> int:
 
         title = f"{dest_name} {deal.total_price_pp:.0f}EUR pp"
         body = f"{out.origin} -> {dest} {out_date} / {in_date}"
-        url = _build_booking_url(deal)
+        url = _webapp_deal_url(profile.id, dest)
 
         try:
             requests.post(
@@ -95,16 +98,48 @@ def notify_new_deals(db: Session, profile: SearchProfile) -> int:
                 data=body,
                 timeout=10,
             )
+            sent += 1
         except Exception as e:
             logger.error(f"Failed to send notification for {dest}: {e}")
+
+    # --- Generic summary for un-belled new deals ---
+    unbelled = {dest: deal for dest, deal in by_dest.items() if dest not in notify_dests}
+
+    if unbelled:
+        # Top 3 cheapest un-belled destinations
+        top3 = sorted(unbelled.values(), key=lambda d: d.total_price_pp)[:3]
+        summary_parts = []
+        for deal in top3:
+            dest_name = (deal.outbound.destination_full or deal.outbound.destination).split(",")[0].strip()
+            summary_parts.append(f"{dest_name} {deal.total_price_pp:.0f}€")
+
+        title = f"{profile.name}: {len(unbelled)} new deals"
+        body = " | ".join(summary_parts)
+        url = _webapp_profile_url(profile.id)
+
+        try:
+            requests.post(
+                NTFY_URL,
+                headers={
+                    "Title": title,
+                    "Click": url,
+                    "Tags": "chart_with_upwards_trend",
+                    "Priority": "2",
+                },
+                data=body,
+                timeout=10,
+            )
+            sent += 1
+        except Exception as e:
+            logger.error(f"Failed to send generic summary for {profile.name}: {e}")
 
     # Mark all as notified
     for deal in new_deals:
         deal.notified = True
     db.flush()
 
-    logger.info(f"Sent {len(by_dest)} notifications for profile {profile.name}")
-    return len(by_dest)
+    logger.info(f"Sent {sent} notifications for profile {profile.name}")
+    return sent
 
 
 def send_daily_digest(db: Session) -> int:
@@ -158,6 +193,7 @@ def send_daily_digest(db: Session) -> int:
             NTFY_URL,
             headers={
                 "Title": f"Daily Flight Digest ({len(best_by_dest)} destinations)",
+                "Click": f"{WEBAPP_URL}/",
                 "Tags": "globe_with_meridians",
                 "Priority": "3",
             },

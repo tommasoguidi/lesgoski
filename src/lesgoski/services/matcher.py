@@ -6,6 +6,7 @@ from lesgoski.database.engine import SessionLocal
 from datetime import datetime
 from lesgoski.core.schemas import StrategyConfig
 from lesgoski.config import HOUR_TOLERANCE
+from lesgoski.services.airports import are_nearby
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,12 @@ class DealMatcher:
         """
         Reconstructs round trips from the shared flights table
         based on profile rules (origins, adults, strategy, price).
+
+        Metro-area matching: the outbound destination and inbound origin
+        don't have to be the same airport — they just need to be nearby.
+        e.g. PSA→GRO outbound + BCN→PSA inbound is valid because
+        GRO and BCN are in the same metro area.
+
         Returns number of deals found.
         """
         match_start = datetime.now()
@@ -29,14 +36,15 @@ class DealMatcher:
             return 0
 
         home_airports = profile.origins
+
         Outbound = aliased(Flight)
         Inbound = aliased(Flight)
 
-        # Query the shared flights table — filter by origins and adults
-        query = self.db.query(Outbound, Inbound).join(
-            Inbound,
-            (Outbound.destination == Inbound.origin)
-        ).filter(
+        # Broad query: outbound from home, inbound back to home,
+        # same adults count, price within budget, timeline ok.
+        # We do NOT enforce Outbound.destination == Inbound.origin here;
+        # instead we check metro-area proximity in Python below.
+        query = self.db.query(Outbound, Inbound).filter(
             Outbound.origin.in_(home_airports),
             Outbound.adults == profile.adults,
             Inbound.destination.in_(home_airports),
@@ -54,6 +62,10 @@ class DealMatcher:
 
         num_matches = 0
         for out_f, in_f in candidates:
+            # Metro-area check: outbound destination and inbound origin
+            # must be the same airport OR nearby (e.g. GRO ↔ BCN)
+            if not are_nearby(out_f.destination, in_f.origin):
+                continue
             if self._is_valid_match(out_f, in_f, config):
                 self._create_deal(profile, out_f, in_f)
                 num_matches += 1

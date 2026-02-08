@@ -1,12 +1,52 @@
 <!-- webapp/templates/deals.html -->
 {% extends "base.html" %}
 
+{% macro deal_body(deal) %}
+{% set is_over_deal = deal.total_price_pp > deal.profile.max_price %}
+<div class="row align-items-center {{ 'tolerance-hit' if is_over_deal }}">
+    <div class="col-md-9 mb-3 mb-md-0">
+        <div class="row gx-2 align-items-center flight-row-mobile">
+            <div class="col-auto col-md-1"><span class="badge bg-primary w-100">OUT</span></div>
+            <div class="col-auto col-md-2"><span class="date-badge">{{ deal.outbound.departure_time.strftime('%a %d %b') }}</span></div>
+            <div class="col-12 col-md-5 my-1 my-md-0">
+                <span class="airport-code">{{ deal.outbound.origin }}</span>
+                <span class="arrow">&#10145;</span>
+                <span class="airport-code">{{ deal.outbound.destination }}</span>
+            </div>
+            <div class="col-12 col-md-4">
+                <span class="flight-time d-block d-md-inline">{{ deal.outbound.departure_time.strftime('%H:%M') }} - {{ deal.outbound.arrival_time.strftime('%H:%M') }}</span>
+            </div>
+        </div>
+        <div class="row gx-2 align-items-center flight-row-mobile">
+            <div class="col-auto col-md-1"><span class="badge bg-secondary w-100">RET</span></div>
+            <div class="col-auto col-md-2"><span class="date-badge">{{ deal.inbound.departure_time.strftime('%a %d %b') }}</span></div>
+            <div class="col-12 col-md-5 my-1 my-md-0">
+                <span class="airport-code">{{ deal.inbound.origin }}</span>
+                <span class="arrow">&#10145;</span>
+                <span class="airport-code">{{ deal.inbound.destination }}</span>
+            </div>
+            <div class="col-12 col-md-4">
+                <span class="flight-time d-block d-md-inline">{{ deal.inbound.departure_time.strftime('%H:%M') }} - {{ deal.inbound.arrival_time.strftime('%H:%M') }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3 border-start-md border-secondary ps-md-4">
+         <div class="d-grid gap-2">
+             {% for btn in booking_links(deal) %}
+                <a href="{{ btn.url }}" target="_blank" class="btn {{ btn.class }} fw-bold py-2">{{ btn.label }}</a>
+             {% endfor %}
+         </div>
+    </div>
+</div>
+{% endmacro %}
+
 {% block content %}
 
 <div id="sheetBackdrop" class="sheet-backdrop" onclick="toggleFilters()"></div>
 
 <div class="bottom-trigger" id="filterTrigger" onclick="toggleFilters()">
-    <span class="fs-5 fw-bold">▲</span>
+    <span class="fs-5 fw-bold">&#9650;</span>
 </div>
 
 <div class="bottom-sheet" id="filterSheet">
@@ -16,14 +56,14 @@
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="text-white mb-0">Filters & Settings</h5>
         </div>
-        
+
         <div class="row g-4">
             <div class="col-12 col-md-4">
                 <label class="small text-muted fw-bold mb-2">Active Profile</label>
                 <div class="input-group">
                     <select class="form-select form-select-sm" onchange="window.location.href='/?profile_id=' + this.value">
                         {% for p in all_profiles %}
-                            <option value="{{ p.id }}" 
+                            <option value="{{ p.id }}"
                                 {% if current_profile and current_profile.id == p.id %}selected{% endif %}>
                                 {{ p.name }}
                             </option>
@@ -42,23 +82,25 @@
                     <button class="btn btn-sm btn-outline-secondary py-0" onclick="toggleAllCountries(true)">All</button>
                     <button class="btn btn-sm btn-outline-secondary py-0" onclick="toggleAllCountries(false)">None</button>
                     <div class="vr mx-2 bg-secondary"></div>
-                    
+
                     {% for c in filter_countries %}
-                        <input type="checkbox" id="chk-{{ c }}" value="{{ c }}" 
-                               class="filter-chip country-filter" 
+                        <input type="checkbox" id="chk-{{ c }}" value="{{ c }}"
+                               class="filter-chip country-filter"
                                onchange="applyFilters()"
-                               {% if c != 'IT' %}checked{% endif %}> 
+                               {% if c != 'IT' %}checked{% endif %}>
                         <label for="chk-{{ c }}">{{ c }}</label>
                     {% endfor %}
                 </div>
             </div>
-            
+
             <div class="col-12 mt-2">
-                 <input type="text" id="filterDest" class="form-control form-control-sm bg-dark text-white border-secondary" 
-                        placeholder="Search specific destination..." onkeyup="applyFilters()">
+                <div class="airport-input-wrapper">
+                    <input type="text" id="filterDest" class="form-control form-control-sm bg-dark text-white border-secondary"
+                           placeholder="Search destination (city or IATA code)...">
+                </div>
             </div>
         </div>
-        
+
         <div class="mt-3 pt-2 border-top border-secondary d-flex justify-content-between text-muted small">
             <span>Showing <span id="visibleCount" class="text-white fw-bold">{{ destinations|length }}</span> deals</span>
         </div>
@@ -66,19 +108,19 @@
 </div>
 
 <div class="container py-4 pb-5 mb-5">
-    
+
     {% if current_profile %}
     <div class="mb-4">
         <div class="d-flex align-items-center gap-2">
         <h1 class="h3 fw-bold text-white mb-0">{{ current_profile.name }}</h1>
-        <button class="btn btn-sm btn-outline-primary border-0 p-1" 
+        <button class="btn btn-sm btn-outline-primary border-0 p-1"
                 onclick="triggerUpdate(this, '{{ current_profile.id }}')"
                 title="Refresh deals">
-            <span class="refresh-icon">↻</span>
+            <span class="refresh-icon">&#8635;</span>
         </button>
     </div>
         <small class="text-muted">
-            Max: €{{ current_profile.max_price }} | Updated: {{ current_profile.updated_at.strftime('%H:%M') if current_profile.updated_at else 'Pending' }}
+            Max: &euro;{{ current_profile.max_price }} | Updated: {{ current_profile.updated_at.strftime('%H:%M') if current_profile.updated_at else 'Pending' }}
         </small>
     </div>
     {% endif %}
@@ -88,18 +130,19 @@
         {% set best = group.best_deal %}
         {% set is_over = best.total_price_pp > best.profile.max_price %}
 
-        <div class="card shadow-sm mb-4 deal-card {{ 'tolerance-hit' if is_over }}" 
-             data-dest="{{ group.destination_code }}" 
+        <div class="card shadow-sm mb-4 deal-card {{ 'tolerance-hit' if is_over }}"
+             id="deal-{{ group.destination_code }}"
+             data-dest="{{ group.destination_code }}"
              data-country="{{ group.country_code }}">
-             
+
             <div class="card-header-flag">
                 <div class="header-content row align-items-center g-3">
                     <div class="col-12 col-md-auto me-auto">
                         <div class="d-flex align-items-center">
                             <h2 class="h3 text-white me-3 destination-title">{{ group.destination_name }}</h2>
-                            
+
                             <img src="{{ group.country_flag }}" alt="{{ group.country_code }}" class="flag-icon me-3">
-                            
+
                             <span class="text-secondary fw-bold opacity-75">{{ group.destination_code }}</span>
 
                             <button class="btn btn-link p-0 ms-3 notify-bell"
@@ -116,7 +159,7 @@
                     </div>
                     <div class="col-12 col-md-auto text-start text-md-end">
                         <div class="d-flex flex-row flex-md-column align-items-center align-items-md-end gap-3 gap-md-1">
-                            <div class="price-huge">€{{ "%.0f"|format(best.total_price_pp) }}</div>
+                            <div class="price-huge">&euro;{{ "%.0f"|format(best.total_price_pp) }}</div>
                             <div>
                                 {% if is_over %}
                                     <span class="badge bg-warning text-dark border-0">Slightly Overpriced</span>
@@ -130,88 +173,54 @@
             </div>
 
             <div class="card-body p-3 p-md-4">
-                 <div class="row align-items-center">
-                    <div class="col-md-9 mb-3 mb-md-0">
-                        <div class="row gx-2 align-items-center flight-row-mobile">
-                            <div class="col-auto col-md-1"><span class="badge bg-primary w-100">OUT</span></div>
-                            <div class="col-auto col-md-2"><span class="date-badge">{{ best.outbound.departure_time.strftime('%a %d %b') }}</span></div>
-                            <div class="col-12 col-md-5 my-1 my-md-0">
-                                <span class="airport-code">{{ best.outbound.origin }}</span>
-                                <span class="arrow">➝</span>
-                                <span class="airport-code">{{ best.outbound.destination }}</span>
-                            </div>
-                            <div class="col-12 col-md-4">
-                                <span class="flight-time d-block d-md-inline">{{ best.outbound.departure_time.strftime('%H:%M') }} - {{ best.outbound.arrival_time.strftime('%H:%M') }}</span>
-                            </div>
-                        </div>
-                        <div class="row gx-2 align-items-center flight-row-mobile">
-                            <div class="col-auto col-md-1"><span class="badge bg-secondary w-100">RET</span></div>
-                            <div class="col-auto col-md-2"><span class="date-badge">{{ best.inbound.departure_time.strftime('%a %d %b') }}</span></div>
-                            <div class="col-12 col-md-5 my-1 my-md-0">
-                                <span class="airport-code">{{ best.inbound.origin }}</span>
-                                <span class="arrow">➝</span>
-                                <span class="airport-code">{{ best.inbound.destination }}</span>
-                            </div>
-                            <div class="col-12 col-md-4">
-                                <span class="flight-time d-block d-md-inline">{{ best.inbound.departure_time.strftime('%H:%M') }} - {{ best.inbound.arrival_time.strftime('%H:%M') }}</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="col-md-3 border-start-md border-secondary ps-md-4">
-                         <div class="d-grid gap-2">
-                             {% for btn in booking_links(best) %}
-                                <a href="{{ btn.url }}" target="_blank" class="btn {{ btn.class }} fw-bold py-2">{{ btn.label }}</a>
-                             {% endfor %}
-                         </div>
-                    </div>
-                 </div>
+                {{ deal_body(best) }}
 
                 {% if group.other_deals %}
                 <div class="mt-3 pt-3 border-top border-secondary">
-                    <button class="btn btn-link text-decoration-none text-muted p-0 w-100 text-start d-flex justify-content-between align-items-center" 
+                    <button class="btn btn-link text-decoration-none text-muted p-0 w-100 text-start d-flex justify-content-between align-items-center"
                             type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ group.destination_code }}">
                         <span class="small"><span class="text-primary fw-bold">{{ group.other_deals|length }} other dates</span> available</span>
-                        <span class="small">▼</span>
+                        <span class="small">&#9660;</span>
                     </button>
-                    
+
                     <div class="collapse mt-2" id="collapse-{{ group.destination_code }}">
                         <div class="list-group list-group-flush">
                             {% for other in group.other_deals %}
                             {% set is_over_other = other.total_price_pp > other.profile.max_price %}
-                            {% set links = booking_links(other) %}
-                            {% set url_out = links[0].url %}
-                            {% set url_ret = links[0].url %}
-                            {% if links|length > 1 %}
-                                {% set url_ret = links[1].url %}
-                            {% endif %}
 
                             <div class="list-group-item px-2 py-2 {{ 'tolerance-hit' if is_over_other }}">
-                                <div class="row align-items-center g-2">
+                                <div class="row align-items-center g-2 cursor-pointer"
+                                     role="button"
+                                     data-bs-toggle="collapse"
+                                     data-bs-target="#detail-{{ group.destination_code }}-{{ loop.index }}">
                                     <div class="col-12 col-md-3 d-flex align-items-center">
                                         <div class="d-flex align-items-baseline text-nowrap">
                                             <span class="text-white fw-bold small">{{ other.outbound.departure_time.strftime('%a %d/%m') }}</span>
-                                            <span class="text-muted mx-2 small">➝</span>
+                                            <span class="text-muted mx-2 small">&#10145;</span>
                                             <span class="text-white fw-bold small">{{ other.inbound.departure_time.strftime('%a %d/%m') }}</span>
                                         </div>
                                     </div>
                                     <div class="col-12 col-md-7">
                                         <div class="d-flex flex-wrap align-items-center gap-3">
-                                            <a href="{{ url_out }}" target="_blank" class="flight-segment d-flex align-items-center small text-decoration-none text-light">
+                                            <span class="d-flex align-items-center small text-light">
                                                 <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 me-2">OUT</span>
-                                                {{ other.outbound.origin }} ➝ {{ other.outbound.destination }}
+                                                {{ other.outbound.origin }} &#10145; {{ other.outbound.destination }}
                                                 <span class="flight-time ms-2">{{ other.outbound.departure_time.strftime('%H:%M') }}</span>
-                                            </a>
-                                            <a href="{{ url_ret }}" target="_blank" class="flight-segment d-flex align-items-center small text-decoration-none text-light">
+                                            </span>
+                                            <span class="d-flex align-items-center small text-light">
                                                 <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 me-2">RET</span>
-                                                {{ other.inbound.origin }} ➝ {{ other.inbound.destination }}
+                                                {{ other.inbound.origin }} &#10145; {{ other.inbound.destination }}
                                                 <span class="flight-time ms-2">{{ other.inbound.departure_time.strftime('%H:%M') }}</span>
-                                            </a>
+                                            </span>
                                         </div>
                                     </div>
                                     <div class="col-12 col-md-2 text-end">
-                                        <div class="price-compact">€{{ "%.0f"|format(other.total_price_pp) }}</div>
+                                        <div class="price-compact">&euro;{{ "%.0f"|format(other.total_price_pp) }}</div>
                                     </div>
+                                </div>
+
+                                <div class="collapse mt-3" id="detail-{{ group.destination_code }}-{{ loop.index }}">
+                                    {{ deal_body(other) }}
                                 </div>
                             </div>
                             {% endfor %}
@@ -222,15 +231,15 @@
             </div>
         </div>
         {% endfor %}
-        
+
         {% if destinations %}
             <div id="noDealsMsg" class="text-center py-5 text-muted" style="display: none;">
-                <h4>No deals match your criteria 😢</h4>
+                <h4>No deals match your criteria</h4>
                 <p>Try adjusting your filters or editing the profile.</p>
             </div>
         {% else %}
             <div id="noDealsMsg" class="text-center py-5 text-muted" style="display: block;">
-                <h4>No deals match your criteria 😢</h4>
+                <h4>No deals match your criteria</h4>
                 <p>Try adjusting your filters or editing the profile.</p>
             </div>
         {% endif %}

@@ -79,25 +79,6 @@ body {
     overflow-y: auto;
 }
 
-/* --- BOTTOM FILTER BAR --- */
-.bottom-sheet {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background-color: #161b22;
-    border-top: 1px solid #30363d;
-    padding: 0 20px 20px 20px; /* Padding bottom for scroll */
-    z-index: 1050;
-    transform: translateY(100%);
-    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-    box-shadow: 0 -10px 40px rgba(0,0,0,0.7);
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
-    max-height: 85vh;
-    overflow-y: auto;
-}
-
 .bottom-sheet.active {
     transform: translateY(0);
 }
@@ -270,6 +251,11 @@ body {
         margin-bottom: 0;
         padding-bottom: 0;
     }
+    .bottom-trigger { padding: 8px 30px; }
+    .bottom-sheet { padding: 0 12px 16px 12px; }
+    .filter-chip + label { font-size: 0.75rem; padding: 4px 8px; }
+    .strategy-time-row { flex-wrap: wrap; gap: 0.5rem; }
+    .nouislider-wrap { min-width: 100%; }
 }
 
 /* --- Airport Autocomplete --- */
@@ -352,69 +338,39 @@ body {
     text-align: center;
     font-variant-numeric: tabular-nums;
 }
-.range-slider-wrap {
-    position: relative;
+/* --- noUiSlider dark theme overrides --- */
+.nouislider-wrap {
     flex: 1;
-    height: 1.5rem;
     min-width: 120px;
+    padding: 0 8px;
 }
-.range-slider {
-    position: absolute;
-    width: 100%;
-    top: 0;
-    pointer-events: none;
-    -webkit-appearance: none;
-    appearance: none;
-    height: 4px;
-    margin-top: 10px;
-    background: transparent;
+.noUi-target {
+    background: #30363d;
+    border: none;
+    box-shadow: none;
+    height: 6px;
+    border-radius: 3px;
 }
-.range-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    pointer-events: all;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
+.noUi-connect {
+    background: #1f6feb;
+}
+.noUi-handle {
     background: #58a6ff;
     border: 2px solid #0d1117;
-    cursor: pointer;
-    position: relative;
-    z-index: 2;
-}
-.range-slider::-moz-range-thumb {
-    pointer-events: all;
-    width: 16px;
-    height: 16px;
     border-radius: 50%;
-    background: #58a6ff;
-    border: 2px solid #0d1117;
+    box-shadow: none;
+    width: 18px !important;
+    height: 18px !important;
+    right: -9px !important;
+    top: -7px !important;
     cursor: pointer;
 }
-.range-from {
-    z-index: 1;
+.noUi-handle::before,
+.noUi-handle::after {
+    display: none;
 }
-.range-to {
-    z-index: 0;
-}
-/* Track styling — only on the bottom slider to avoid double rendering */
-.range-from::-webkit-slider-runnable-track {
-    height: 4px;
-    background: #30363d;
-    border-radius: 2px;
-}
-.range-from::-moz-range-track {
-    height: 4px;
-    background: #30363d;
-    border-radius: 2px;
-}
-.range-to::-webkit-slider-runnable-track {
-    height: 4px;
-    background: transparent;
-}
-.range-to::-moz-range-track {
-    height: 4px;
-    background: transparent;
+.noUi-horizontal .noUi-tooltip {
+    display: none;
 }
 .strategy-number-input {
     width: 4rem !important;

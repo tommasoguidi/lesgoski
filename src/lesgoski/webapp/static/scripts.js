@@ -56,6 +56,7 @@ function applyFilters() {
 
 document.addEventListener('DOMContentLoaded', () => {
     applyFilters();
+    initDealsAirportFilter('filterDest');
 });
 
 function triggerUpdate(btn, profileId) {
@@ -72,6 +73,80 @@ function triggerUpdate(btn, profileId) {
                 btn.disabled = false;
             }
         });
+}
+
+
+// ==========================================
+// DEALS PAGE — Airport Autocomplete Filter
+// ==========================================
+
+function initDealsAirportFilter(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    const wrapper = input.parentElement;
+    wrapper.style.position = 'relative';
+
+    // Create dropdown
+    const dropdown = document.createElement('div');
+    dropdown.className = 'airport-dropdown';
+    wrapper.appendChild(dropdown);
+
+    let selecting = false;
+
+    input.addEventListener('input', async () => {
+        const query = input.value.trim().toLowerCase();
+        // Still apply text filter even if not selecting from dropdown
+        applyFilters();
+
+        if (query.length < 2) {
+            dropdown.innerHTML = '';
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        const airports = await loadAirports();
+        const matches = airports.filter(a =>
+            a.iata.toLowerCase().includes(query) ||
+            a.name.toLowerCase().includes(query) ||
+            a.city.toLowerCase().includes(query)
+        ).slice(0, 8);
+
+        dropdown.innerHTML = '';
+        if (matches.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        matches.forEach(a => {
+            const item = document.createElement('div');
+            item.className = 'airport-dropdown-item';
+            item.textContent = `${a.iata} - ${a.city} (${a.name})`;
+            item.addEventListener('mousedown', () => { selecting = true; });
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                input.value = a.iata;
+                dropdown.innerHTML = '';
+                dropdown.style.display = 'none';
+                selecting = false;
+                applyFilters();
+            });
+            dropdown.appendChild(item);
+        });
+        dropdown.style.display = 'block';
+    });
+
+    input.addEventListener('blur', () => {
+        setTimeout(() => {
+            if (!selecting) {
+                dropdown.style.display = 'none';
+            }
+            selecting = false;
+        }, 150);
+    });
+
+    // Remove the old onkeyup handler since we handle it via 'input' event
+    input.removeAttribute('onkeyup');
 }
 
 
@@ -188,7 +263,7 @@ function addChip(code, chipsContainer, hiddenInput) {
 
 
 // ==========================================
-// PROFILE FORM — Strategy Editor
+// PROFILE FORM — Strategy Editor (noUiSlider)
 // ==========================================
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -232,7 +307,7 @@ function initStrategyEditor() {
     `;
     editor.appendChild(staySection);
 
-    // Listen for changes on everything
+    // Listen for changes on number inputs
     editor.addEventListener('change', () => syncStrategyJson());
     editor.addEventListener('input', () => syncStrategyJson());
 
@@ -282,36 +357,56 @@ function buildDaySection(container, prefix, label, activeDays) {
 
         btnGroup.appendChild(btn);
 
-        // Time window row with dual-range slider
+        // Time window row with noUiSlider
         const row = document.createElement('div');
         row.id = `${prefix}-time-${i}`;
         row.className = 'strategy-time-row';
         row.style.display = isActive ? 'flex' : 'none';
-        row.innerHTML = `
-            <span class="strategy-day-label">${DAY_NAMES[i]}</span>
-            <span class="range-value" id="${prefix}-label-${i}">${timeWindow[0]}:00 – ${timeWindow[1]}:00</span>
-            <div class="range-slider-wrap">
-                <input type="range" class="range-slider range-from"
-                       id="${prefix}-from-${i}" min="0" max="24" step="1" value="${timeWindow[0]}">
-                <input type="range" class="range-slider range-to"
-                       id="${prefix}-to-${i}" min="0" max="24" step="1" value="${timeWindow[1]}">
-            </div>
-        `;
+
+        const dayLabel = document.createElement('span');
+        dayLabel.className = 'strategy-day-label';
+        dayLabel.textContent = DAY_NAMES[i];
+
+        const rangeLabel = document.createElement('span');
+        rangeLabel.className = 'range-value';
+        rangeLabel.id = `${prefix}-label-${i}`;
+        rangeLabel.textContent = `${timeWindow[0]}:00 – ${timeWindow[1]}:00`;
+
+        const sliderWrap = document.createElement('div');
+        sliderWrap.className = 'nouislider-wrap';
+
+        const sliderEl = document.createElement('div');
+        sliderEl.id = `${prefix}-slider-${i}`;
+        sliderWrap.appendChild(sliderEl);
+
+        row.appendChild(dayLabel);
+        row.appendChild(rangeLabel);
+        row.appendChild(sliderWrap);
         timeRows.appendChild(row);
 
-        // Wire up live label updates for this row's sliders
-        const fromSlider = row.querySelector('.range-from');
-        const toSlider = row.querySelector('.range-to');
-        const rangeLabel = row.querySelector('.range-value');
-        const updateLabel = () => {
-            let f = parseInt(fromSlider.value);
-            let t = parseInt(toSlider.value);
-            // Prevent from > to
-            if (f > t) { fromSlider.value = t; f = t; }
-            rangeLabel.textContent = `${f}:00 – ${t}:00`;
-        };
-        fromSlider.addEventListener('input', updateLabel);
-        toSlider.addEventListener('input', updateLabel);
+        // Initialize noUiSlider after element is in DOM
+        setTimeout(() => {
+            noUiSlider.create(sliderEl, {
+                start: [timeWindow[0], timeWindow[1]],
+                connect: true,
+                step: 1,
+                range: { min: 0, max: 24 },
+                format: {
+                    to: v => Math.round(v),
+                    from: v => Number(v)
+                }
+            });
+
+            sliderEl.noUiSlider.on('update', (values) => {
+                const f = values[0];
+                const t = values[1];
+                rangeLabel.textContent = `${f}:00 – ${t}:00`;
+            });
+
+            sliderEl.noUiSlider.on('change', () => {
+                syncStrategyJson();
+            });
+        }, 0);
     }
 
     section.appendChild(btnGroup);
@@ -330,17 +425,21 @@ function syncStrategyJson() {
         // Outbound
         const outBtn = document.querySelector(`[data-prefix="out"][data-day="${i}"]`);
         if (outBtn && outBtn.dataset.active === '1') {
-            const from = parseInt(document.getElementById(`out-from-${i}`).value) || 0;
-            const to = parseInt(document.getElementById(`out-to-${i}`).value) || 24;
-            outDays[i] = [from, to];
+            const slider = document.getElementById(`out-slider-${i}`);
+            if (slider && slider.noUiSlider) {
+                const vals = slider.noUiSlider.get();
+                outDays[i] = [vals[0], vals[1]];
+            }
         }
 
         // Inbound
         const inBtn = document.querySelector(`[data-prefix="in"][data-day="${i}"]`);
         if (inBtn && inBtn.dataset.active === '1') {
-            const from = parseInt(document.getElementById(`in-from-${i}`).value) || 0;
-            const to = parseInt(document.getElementById(`in-to-${i}`).value) || 24;
-            inDays[i] = [from, to];
+            const slider = document.getElementById(`in-slider-${i}`);
+            if (slider && slider.noUiSlider) {
+                const vals = slider.noUiSlider.get();
+                inDays[i] = [vals[0], vals[1]];
+            }
         }
     }
 

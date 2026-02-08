@@ -10,6 +10,7 @@ from lesgoski.config import SCAN_COOLDOWN_MINUTES, LOOKUP_HORIZON_DAYS
 from lesgoski.core.schemas import FlightSchema
 from lesgoski.database.engine import SessionLocal
 from lesgoski.database.models import Flight, ScanLog
+from lesgoski.services.airports import get_nearby_airports
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_upsert
 
@@ -23,6 +24,12 @@ class FlightScanner:
         """
         Scan flights from the given origins for the given number of adults.
         Checks ScanLog to skip origins that were recently scanned.
+
+        For each discovered destination, also scans return legs from
+        *nearby* airports in the same metro area back to each home airport.
+        e.g. outbound PSA→GRO will also fetch returns from BCN→PSA
+        because BCN is near GRO.
+
         Returns total number of flights found.
         """
         today = datetime.now().date()
@@ -55,19 +62,24 @@ class FlightScanner:
             self._bulk_upsert(raw_flights)
             total_results += len(raw_flights)
 
-            # 2. Scan return legs for each discovered destination
+            # 2. Scan return legs from each destination (and its metro-area
+            #    neighbours) back to this origin.
+            #    e.g. dest=GRO → also scan BCN→origin, REU→origin
             destinations = {f.destination for f in raw_flights}
 
             for dest in destinations:
-                raw_inbound = self.api.get_cheapest_flights(
-                    airport=dest,
-                    num_adults=adults,
-                    destination_airport=origin,
-                    date_from=date_from,
-                    date_to=date_to
-                )
-                self._bulk_upsert(raw_inbound)
-                total_results += len(raw_inbound)
+                # All airports near the outbound destination
+                metro_origins = get_nearby_airports(dest)
+                for metro_apt in metro_origins:
+                    raw_inbound = self.api.get_cheapest_flights(
+                        airport=metro_apt,
+                        num_adults=adults,
+                        destination_airport=origin,
+                        date_from=date_from,
+                        date_to=date_to
+                    )
+                    self._bulk_upsert(raw_inbound)
+                    total_results += len(raw_inbound)
 
             # Log this scan
             self.db.add(ScanLog(
