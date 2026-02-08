@@ -29,7 +29,6 @@ class DealMatcher:
             return 0
 
         home_airports = profile.origins
-        adults = float(profile.adults)
         Outbound = aliased(Flight)
         Inbound = aliased(Flight)
 
@@ -42,7 +41,7 @@ class DealMatcher:
             Outbound.adults == profile.adults,
             Inbound.destination.in_(home_airports),
             Inbound.adults == profile.adults,
-            (Outbound.price + Inbound.price) / adults <= profile.max_price * 1.25,
+            Outbound.price + Inbound.price <= profile.max_price * 1.25,
             Inbound.departure_time > Outbound.arrival_time
         )
 

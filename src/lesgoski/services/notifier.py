@@ -169,12 +169,3 @@ def send_daily_digest(db: Session) -> int:
         logger.error(f"Failed to send daily digest: {e}")
 
     return len(best_by_dest)
-
-
-def notify_new_deals_for_profile(db: Session, profile_id: int) -> int:
-    """Convenience function to notify new deals for a specific profile."""
-    profile = db.get(SearchProfile, profile_id)
-    if not profile:
-        logger.warning(f"Profile ID {profile_id} not found for notifications.")
-        return 0
-    return notify_new_deals(db, profile)
