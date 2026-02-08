@@ -1,12 +1,13 @@
 # services/matcher.py
 import logging
 from sqlalchemy.orm import aliased, Session
+from sqlalchemy import or_, and_, tuple_
 from lesgoski.database.models import Flight, SearchProfile, Deal
 from lesgoski.database.engine import SessionLocal
 from datetime import datetime
 from lesgoski.core.schemas import StrategyConfig
-from lesgoski.config import HOUR_TOLERANCE
-from lesgoski.services.airports import are_nearby
+from lesgoski.config import HOUR_TOLERANCE, NEARBY_AIRPORT_RADIUS_KM
+from lesgoski.services.airports import get_nearby_airports
 
 logger = logging.getLogger(__name__)
 
@@ -40,32 +41,72 @@ class DealMatcher:
         Outbound = aliased(Flight)
         Inbound = aliased(Flight)
 
-        # Broad query: outbound from home, inbound back to home,
-        # same adults count, price within budget, timeline ok.
-        # We do NOT enforce Outbound.destination == Inbound.origin here;
-        # instead we check metro-area proximity in Python below.
-        query = self.db.query(Outbound, Inbound).filter(
+        # Base filters common to all queries
+        base_filters = [
             Outbound.origin.in_(home_airports),
             Outbound.adults == profile.adults,
             Inbound.destination.in_(home_airports),
             Inbound.adults == profile.adults,
             Outbound.price + Inbound.price <= profile.max_price * 1.25,
-            Inbound.departure_time > Outbound.arrival_time
-        )
+            Inbound.departure_time > Outbound.arrival_time,
+        ]
 
         # Apply allowed destinations filter if configured
         allowed = profile.allowed_destinations
         if allowed:
-            query = query.filter(Outbound.destination.in_(allowed))
+            base_filters.append(Outbound.destination.in_(allowed))
 
-        candidates = query.all()
+        # --- Pass 1: strict join (same airport) — fast, handles most deals ---
+        query_strict = (
+            self.db.query(Outbound, Inbound)
+            .join(Inbound, Outbound.destination == Inbound.origin)
+            .filter(*base_filters)
+        )
+        candidates = list(query_strict.all())
+
+        # --- Pass 2: cross-airport metro-area pairs ---
+        # Find all unique outbound destinations, expand to nearby airports,
+        # and only query for the cross-airport pairs (excluding same-airport
+        # which was already covered in pass 1).
+        if NEARBY_AIRPORT_RADIUS_KM > 0:
+            out_dests = {row[0].destination for row in candidates}
+            # Also check destinations not yet matched (they might only have
+            # cross-airport returns)
+            all_out_dests = set(
+                r[0] for r in self.db.query(Flight.destination)
+                .filter(Flight.origin.in_(home_airports), Flight.adults == profile.adults)
+                .distinct()
+                .all()
+            )
+
+            cross_pairs = []  # (outbound_dest, inbound_origin) where they differ
+            for dest in all_out_dests:
+                nearby = get_nearby_airports(dest)
+                for apt in nearby:
+                    if apt != dest:
+                        cross_pairs.append((dest, apt))
+
+            if cross_pairs:
+                # Build OR conditions for each cross-airport pair
+                pair_conditions = or_(
+                    *[
+                        and_(Outbound.destination == out_d, Inbound.origin == in_o)
+                        for out_d, in_o in cross_pairs
+                    ]
+                )
+                query_cross = (
+                    self.db.query(Outbound, Inbound)
+                    .filter(*base_filters, pair_conditions)
+                )
+                candidates.extend(query_cross.all())
 
         num_matches = 0
+        seen = set()  # avoid duplicates from both passes
         for out_f, in_f in candidates:
-            # Metro-area check: outbound destination and inbound origin
-            # must be the same airport OR nearby (e.g. GRO ↔ BCN)
-            if not are_nearby(out_f.destination, in_f.origin):
+            pair_key = (out_f.id, in_f.id)
+            if pair_key in seen:
                 continue
+            seen.add(pair_key)
             if self._is_valid_match(out_f, in_f, config):
                 self._create_deal(profile, out_f, in_f)
                 num_matches += 1
