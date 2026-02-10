@@ -1,7 +1,7 @@
 # services/matcher.py
 import logging
 from sqlalchemy.orm import aliased, Session
-from sqlalchemy import or_, and_, tuple_
+from sqlalchemy import and_
 from lesgoski.database.models import Flight, SearchProfile, Deal
 from lesgoski.database.engine import SessionLocal
 from datetime import datetime
@@ -28,6 +28,7 @@ class DealMatcher:
 
         Returns number of deals found.
         """
+        logger.info(f"Matching results for '{profile.name}'...")
         match_start = datetime.now()
 
         # Load constraints
@@ -65,40 +66,43 @@ class DealMatcher:
         candidates = list(query_strict.all())
 
         # --- Pass 2: cross-airport metro-area pairs ---
-        # Find all unique outbound destinations, expand to nearby airports,
-        # and only query for the cross-airport pairs (excluding same-airport
-        # which was already covered in pass 1).
+        # Only expand nearby airports for:
+        #   - Outbound arrival airport (destination)
+        #   - Inbound departure airport (origin)
+        # i.e. fly INTO airport A, fly BACK from nearby airport B.
+        #
+        # Query one (dest, nearby_apt) pair at a time with a proper join
+        # so each query is small and indexed.  Skip same-airport pairs
+        # (already covered in Pass 1).
         if NEARBY_AIRPORT_RADIUS_KM > 0:
-            out_dests = {row[0].destination for row in candidates}
-            # Also check destinations not yet matched (they might only have
-            # cross-airport returns)
+            # Collect outbound destinations that actually exist in the DB
+            # (only from flights departing our home airports).
             all_out_dests = set(
                 r[0] for r in self.db.query(Flight.destination)
                 .filter(Flight.origin.in_(home_airports), Flight.adults == profile.adults)
                 .distinct()
                 .all()
             )
+            if allowed:
+                all_out_dests &= set(allowed)
 
-            cross_pairs = []  # (outbound_dest, inbound_origin) where they differ
             for dest in all_out_dests:
                 nearby = get_nearby_airports(dest)
                 for apt in nearby:
-                    if apt != dest:
-                        cross_pairs.append((dest, apt))
-
-            if cross_pairs:
-                # Build OR conditions for each cross-airport pair
-                pair_conditions = or_(
-                    *[
-                        and_(Outbound.destination == out_d, Inbound.origin == in_o)
-                        for out_d, in_o in cross_pairs
-                    ]
-                )
-                query_cross = (
-                    self.db.query(Outbound, Inbound)
-                    .filter(*base_filters, pair_conditions)
-                )
-                candidates.extend(query_cross.all())
+                    if apt == dest:
+                        continue  # same-airport already handled in Pass 1
+                    query_cross = (
+                        self.db.query(Outbound, Inbound)
+                        .join(
+                            Inbound,
+                            and_(
+                                Outbound.destination == dest,
+                                Inbound.origin == apt,
+                            ),
+                        )
+                        .filter(*base_filters)
+                    )
+                    candidates.extend(query_cross.all())
 
         num_matches = 0
         seen = set()  # avoid duplicates from both passes

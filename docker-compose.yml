@@ -1,0 +1,51 @@
+services:
+  web:
+    build: .
+    command: ["lesgoski-web"]
+    env_file: .env
+    environment:
+      - UVICORN_HOST=0.0.0.0
+      - UVICORN_RELOAD=false
+      - DATABASE_URL=sqlite:////app/data/flights.db
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - db-data:/app/data
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    command: ["lesgoski-scheduler"]
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite:////app/data/flights.db
+    volumes:
+      - db-data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - web
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-data:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    depends_on:
+      - web
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-data:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
+
+volumes:
+  db-data:
+  certbot-data:
+  certbot-www:

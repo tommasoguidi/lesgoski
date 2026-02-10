@@ -384,29 +384,27 @@ function buildDaySection(container, prefix, label, activeDays) {
         row.appendChild(sliderWrap);
         timeRows.appendChild(row);
 
-        // Initialize noUiSlider after element is in DOM
-        setTimeout(() => {
-            noUiSlider.create(sliderEl, {
-                start: [timeWindow[0], timeWindow[1]],
-                connect: true,
-                step: 1,
-                range: { min: 0, max: 24 },
-                format: {
-                    to: v => Math.round(v),
-                    from: v => Number(v)
-                }
-            });
+        // Initialize noUiSlider synchronously so syncStrategyJson() can read values
+        noUiSlider.create(sliderEl, {
+            start: [timeWindow[0], timeWindow[1]],
+            connect: true,
+            step: 1,
+            range: { min: 0, max: 24 },
+            format: {
+                to: v => Math.round(v),
+                from: v => Number(v)
+            }
+        });
 
-            sliderEl.noUiSlider.on('update', (values) => {
-                const f = values[0];
-                const t = values[1];
-                rangeLabel.textContent = `${f}:00 – ${t}:00`;
-            });
+        sliderEl.noUiSlider.on('update', (values) => {
+            const f = values[0];
+            const t = values[1];
+            rangeLabel.textContent = `${f}:00 – ${t}:00`;
+        });
 
-            sliderEl.noUiSlider.on('change', () => {
-                syncStrategyJson();
-            });
-        }, 0);
+        sliderEl.noUiSlider.on('change', () => {
+            syncStrategyJson();
+        });
     }
 
     section.appendChild(btnGroup);

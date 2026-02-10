@@ -35,36 +35,32 @@ def _webapp_profile_url(profile_id: int) -> str:
     return f"{WEBAPP_URL}/?profile_id={profile_id}"
 
 
-def notify_new_deals(db: Session, profile: SearchProfile) -> int:
+def notify_new_deals(db: Session, profile: SearchProfile):
     """
     Send push notifications for new deals:
     1. Per-destination notifications for "belled" destinations (click → webapp deep-link)
     2. A generic summary notification if there are un-belled new deals
-
-    Returns total number of notifications sent.
     """
     if not NTFY_URL:
         logger.warning("NTFY_TOPIC not set, skipping notifications.")
-        return 0
+        return
 
-    new_deals = (
+    actual_deals = (
         db.query(Deal)
         .options(joinedload(Deal.outbound), joinedload(Deal.inbound), joinedload(Deal.profile))
         .filter(
             Deal.profile_id == profile.id,
-            Deal.notified == False,
-            Deal.total_price_pp <= profile.max_price,
         )
         .order_by(Deal.total_price_pp)
         .all()
     )
 
-    if not new_deals:
-        return 0
+    if not actual_deals:
+        return
 
     # Group deals by destination — keep the cheapest (already sorted)
     by_dest = {}
-    for deal in new_deals:
+    for deal in actual_deals:
         dest = deal.outbound.destination
         if dest not in by_dest:
             by_dest[dest] = deal
@@ -134,74 +130,68 @@ def notify_new_deals(db: Session, profile: SearchProfile) -> int:
             logger.error(f"Failed to send generic summary for {profile.name}: {e}")
 
     # Mark all as notified
-    for deal in new_deals:
+    for deal in actual_deals:
         deal.notified = True
     db.flush()
 
     logger.info(f"Sent {sent} notifications for profile {profile.name}")
-    return sent
 
 
-def send_daily_digest(db: Session) -> int:
+def send_daily_digest(db: Session):
     """
     Send a single digest notification summarizing the best deal
     per destination across all active profiles.
-    Returns the number of destinations included.
     """
     if not NTFY_URL:
-        return 0
+        return
 
     profiles = db.query(SearchProfile).filter(SearchProfile.is_active == True).all()
     if not profiles:
-        return 0
+        return
 
-    # Collect best deal per destination across all profiles
-    best_by_dest = {}
+    # Collect best deal per destination for each profile
     for profile in profiles:
+        best_by_dest = {}
         deals = (
             db.query(Deal)
             .options(joinedload(Deal.outbound), joinedload(Deal.inbound), joinedload(Deal.profile))
             .filter(
                 Deal.profile_id == profile.id,
-                Deal.total_price_pp <= profile.max_price,
             )
             .order_by(Deal.total_price_pp)
             .all()
         )
         for deal in deals:
             dest = deal.outbound.destination
-            if dest not in best_by_dest or deal.total_price_pp < best_by_dest[dest].total_price_pp:
+            if dest not in best_by_dest:  # already ordered
                 best_by_dest[dest] = deal
 
-    if not best_by_dest:
-        return 0
+        if not best_by_dest:
+            continue
 
-    # Build digest message
-    lines = []
-    sorted_deals = sorted(best_by_dest.values(), key=lambda d: d.total_price_pp)
-    for deal in sorted_deals[:15]:  # top 15 to keep it readable
-        out = deal.outbound
-        dest_name = (out.destination_full or out.destination).split(",")[0].strip()
-        out_date = out.departure_time.strftime("%d/%m")
-        in_date = deal.inbound.departure_time.strftime("%d/%m")
-        lines.append(f"{dest_name}: {deal.total_price_pp:.0f}EUR ({out_date}-{in_date})")
+        # Build digest message
+        lines = []
+        for deal in list(best_by_dest.values())[:15]:  # top 15 to keep it readable
+            out = deal.outbound
+            dest_name = (out.destination_full or out.destination).split(",")[0].strip()
+            out_date = out.departure_time.strftime("%d/%m")
+            in_date = deal.inbound.departure_time.strftime("%d/%m")
+            lines.append(f"{dest_name}: {deal.total_price_pp:.0f}EUR ({out_date}-{in_date})")
 
-    body = "\n".join(lines)
+        body = "\n".join(lines)
 
-    try:
-        requests.post(
-            NTFY_URL,
-            headers={
-                "Title": f"Daily Flight Digest ({len(best_by_dest)} destinations)",
-                "Click": f"{WEBAPP_URL}/",
-                "Tags": "globe_with_meridians",
-                "Priority": "3",
-            },
-            data=body,
-            timeout=10,
-        )
-        logger.info(f"Daily digest sent with {len(best_by_dest)} destinations")
-    except Exception as e:
-        logger.error(f"Failed to send daily digest: {e}")
-
-    return len(best_by_dest)
+        try:
+            requests.post(
+                NTFY_URL,
+                headers={
+                    "Title": f"Daily Flight Digest - {profile.name}",
+                    "Click": f"{WEBAPP_URL}/",
+                    "Tags": "globe_with_meridians",
+                    "Priority": "3",
+                },
+                data=body,
+                timeout=10,
+            )
+            logger.info(f"Daily digest sent for profile {profile.name} destinations")
+        except Exception as e:
+            logger.error(f"Failed to send daily digest: {e}")

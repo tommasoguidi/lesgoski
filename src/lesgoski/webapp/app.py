@@ -285,12 +285,13 @@ async def toggle_notify_destination(
 
 def main():
     """Entry point for the web application."""
+    import os
     import uvicorn
     uvicorn.run(
         "lesgoski.webapp.app:app",
-        host="127.0.0.1",
-        port=8000,
-        reload=True,
+        host=os.getenv("UVICORN_HOST", "127.0.0.1"),
+        port=int(os.getenv("UVICORN_PORT", "8000")),
+        reload=os.getenv("UVICORN_RELOAD", "true").lower() == "true",
     )
 
 
