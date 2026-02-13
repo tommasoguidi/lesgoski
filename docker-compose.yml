@@ -12,6 +12,11 @@ services:
     volumes:
       - db-data:/app/data
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   scheduler:
     build: .
@@ -24,6 +29,11 @@ services:
     restart: unless-stopped
     depends_on:
       - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   nginx:
     image: nginx:alpine
@@ -37,6 +47,11 @@ services:
     depends_on:
       - web
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   certbot:
     image: certbot/certbot
