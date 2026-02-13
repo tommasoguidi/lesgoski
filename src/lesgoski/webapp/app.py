@@ -87,6 +87,9 @@ def view_deals(request: Request, profile_id: int = None, db: Session = Depends(g
         joinedload(Deal.profile)
     ).filter(Deal.profile_id == current_profile.id).all()
 
+    # Discard deals whose flights were pruned (orphaned FK safety net)
+    deals = [d for d in deals if d.outbound and d.inbound]
+
     # Grouping Data — metro-area aware
     # Each deal appears in all nearby airport groups so that e.g.
     # a PSA→GRO / BCN→PSA deal shows up under both GRO and BCN.

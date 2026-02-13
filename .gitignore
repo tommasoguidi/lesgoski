@@ -10,3 +10,5 @@ build/
 *.db-shm
 .env
 .DS_Store
+web.log
+*backup.csv

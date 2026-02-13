@@ -6,7 +6,7 @@ import schedule
 from datetime import datetime, timedelta
 from lesgoski.config import UPDATE_INTERVAL_MINUTES, FLIGHT_STALENESS_HOURS
 from lesgoski.database.engine import SessionLocal
-from lesgoski.database.models import SearchProfile, Flight, ScanLog
+from lesgoski.database.models import SearchProfile, Flight, ScanLog, Deal
 from lesgoski.services.orchestrator import update_single_profile
 from lesgoski.services.notifier import send_daily_digest
 
@@ -82,14 +82,20 @@ def prune_stale_data():
             Flight.updated_at < stale_threshold
         ).delete()
 
+        # Prune deals whose flights were just deleted (orphaned FKs)
+        orphaned_deals = db.query(Deal).filter(
+            ~Deal.outbound_flight_id.in_(db.query(Flight.id)) |
+            ~Deal.inbound_flight_id.in_(db.query(Flight.id))
+        ).delete(synchronize_session="fetch")
+
         # Prune scan_log entries older than 7 days
         old_logs = db.query(ScanLog).filter(
             ScanLog.scanned_at < now - timedelta(days=7)
         ).delete()
 
         db.commit()
-        if deleted_flights or old_logs:
-            logger.info(f"Pruned {deleted_flights} stale flights, {old_logs} old scan logs")
+        if deleted_flights or orphaned_deals or old_logs:
+            logger.info(f"Pruned {deleted_flights} stale flights, {orphaned_deals} orphaned deals, {old_logs} old scan logs")
     except Exception as e:
         db.rollback()
         logger.error(f"Pruning failed: {e}", exc_info=True)

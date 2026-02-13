@@ -23,6 +23,7 @@ if "sqlite" in DATABASE_URL:
     def _set_sqlite_wal(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
         cursor.close()
 
 # SessionLocal is the factory for creating new database sessions
