@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+    <h1 class="h3 fw-bold text-white mb-4">Settings</h1>
+
+    {% if success %}
+    <div class="alert alert-success py-2 small">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="alert alert-danger py-2 small">{{ error }}</div>
+    {% endif %}
+
+    <div class="row g-4">
+
+        <!-- My Profiles -->
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="text-white mb-0">My Profiles</h5>
+                        <a href="/profile/new" class="btn btn-sm btn-success">+ New</a>
+                    </div>
+
+                    {% if own_profiles %}
+                    <div class="list-group list-group-flush">
+                        {% for p in own_profiles %}
+                        <div class="list-group-item bg-transparent border-secondary px-0 py-2">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div class="d-flex align-items-center gap-2">
+                                    <form action="/settings/favourite" method="POST" class="d-inline">
+                                        <input type="hidden" name="profile_id" value="{{ p.id }}">
+                                        <button type="submit" class="btn btn-link p-0 border-0 favourite-star"
+                                                title="{{ 'Remove as default' if user.favourite_profile_id == p.id else 'Set as default' }}">
+                                            {% if user.favourite_profile_id == p.id %}
+                                                <span class="star-active">&#9733;</span>
+                                            {% else %}
+                                                <span class="star-inactive">&#9734;</span>
+                                            {% endif %}
+                                        </button>
+                                    </form>
+                                    <span class="text-white">{{ p.name }}</span>
+                                </div>
+                                <div class="d-flex gap-1">
+                                    <!-- Share dropdown (broskis only) -->
+                                    {% if broskis %}
+                                    <div class="dropdown">
+                                        <button class="btn btn-sm btn-outline-secondary py-0 px-2 dropdown-toggle"
+                                                data-bs-toggle="dropdown" title="Share">
+                                            &#128279;
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+                                            {% set ns = namespace(has_unsent=false) %}
+                                            {% for b in broskis %}
+                                            {% if b not in p.viewers %}
+                                            {% set ns.has_unsent = true %}
+                                            <li>
+                                                <form action="/profile/{{ p.id }}/share" method="POST">
+                                                    <input type="hidden" name="share_user_id" value="{{ b.id }}">
+                                                    <button type="submit" class="dropdown-item">{{ b.username }}</button>
+                                                </form>
+                                            </li>
+                                            {% endif %}
+                                            {% endfor %}
+                                            {% if not ns.has_unsent %}
+                                            <li><span class="dropdown-item text-muted small">All broskis have access</span></li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                    {% endif %}
+                                    <a href="/profile/{{ p.id }}" class="btn btn-sm btn-outline-primary py-0 px-2" title="Edit">&#9998;</a>
+                                </div>
+                            </div>
+                            {% if p.viewers %}
+                            <div class="d-flex flex-wrap gap-1 mt-1 ms-4">
+                                {% for v in p.viewers %}
+                                <form action="/profile/{{ p.id }}/unshare" method="POST" class="d-inline">
+                                    <input type="hidden" name="unshare_user_id" value="{{ v.id }}">
+                                    <span class="badge bg-secondary bg-opacity-25 text-muted small viewer-badge">
+                                        {{ v.username }}
+                                        <button type="submit" class="btn-close btn-close-white ms-1" style="font-size: 0.5rem;"></button>
+                                    </span>
+                                </form>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted small mb-0">No profiles yet. Create your first one!</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared With Me -->
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h5 class="text-white mb-3">Shared With Me</h5>
+                    {% if shared_profiles %}
+                    <div class="list-group list-group-flush">
+                        {% for p in shared_profiles %}
+                        <div class="list-group-item bg-transparent border-secondary px-0 py-2">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div>
+                                    <span class="text-muted small">{{ p.user.username }}'s</span>
+                                    <span class="text-white ms-1">{{ p.name }}</span>
+                                </div>
+                                <form action="/settings/favourite" method="POST" class="d-inline">
+                                    <input type="hidden" name="profile_id" value="{{ p.id }}">
+                                    <button type="submit" class="btn btn-link p-0 border-0 favourite-star"
+                                            title="{{ 'Remove as default' if user.favourite_profile_id == p.id else 'Set as default' }}">
+                                        {% if user.favourite_profile_id == p.id %}
+                                            <span class="star-active">&#9733;</span>
+                                        {% else %}
+                                            <span class="star-inactive">&#9734;</span>
+                                        {% endif %}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted small mb-0">No one has shared profiles with you yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Broskis -->
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h5 class="text-white mb-3">Broskis</h5>
+
+                    {% if broskis %}
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        {% for b in broskis %}
+                        <div class="d-inline-flex align-items-center gap-1 broski-chip">
+                            <span class="text-white small">{{ b.username }}</span>
+                            <form action="/broski/remove/{{ b.id }}" method="POST" class="d-inline">
+                                <button type="submit" class="btn-close btn-close-white ms-1" style="font-size: 0.5rem;"
+                                        title="Remove broski"
+                                        onclick="return confirm('Remove {{ b.username }} as broski? This will also unshare all profiles.')"></button>
+                            </form>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted small mb-3">No broskis yet. Send a request below!</p>
+                    {% endif %}
+
+                    {% if pending_requests %}
+                    <div class="mb-3">
+                        <label class="small text-muted fw-bold mb-2">Incoming Requests</label>
+                        {% for req in pending_requests %}
+                        <div class="d-flex align-items-center justify-content-between py-1">
+                            <span class="text-white small">{{ req.from_user.username }}</span>
+                            <div class="d-flex gap-1">
+                                <form action="/broski/accept/{{ req.id }}" method="POST" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2">Accept</button>
+                                </form>
+                                <form action="/broski/decline/{{ req.id }}" method="POST" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2">Decline</button>
+                                </form>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <form action="/broski/request" method="POST" class="d-flex gap-2">
+                        <div class="flex-grow-1" style="position: relative;">
+                            <input type="text" name="broski_username" id="broski-username"
+                                   class="form-control form-control-sm"
+                                   placeholder="Username..." required minlength="3" autocomplete="off">
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Send Request</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h5 class="text-white mb-3">Notifications</h5>
+                    <p class="text-muted small mb-2">Your personal ntfy topic:</p>
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control font-monospace" value="{{ user.ntfy_topic or 'Not set' }}" readonly id="ntfy-topic">
+                        <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('ntfy-topic').value)">Copy</button>
+                    </div>
+                    <p class="text-muted small mb-0">
+                        Subscribe to this topic in the
+                        <a href="https://ntfy.sh" target="_blank" class="text-primary">ntfy app</a>
+                        on your phone to receive flight deal notifications.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Excluded Destinations -->
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h5 class="text-white mb-3">Excluded Destinations</h5>
+                    <p class="text-muted small mb-2">Airports you want to hide from all profiles (e.g. already visited):</p>
+                    <form action="/settings/save" method="POST">
+                        <div class="airport-input-wrapper mb-3">
+                            <input type="hidden" name="excluded_destinations" id="excluded-hidden"
+                                   value="{{ user.excluded_destinations|join(',') }}">
+                            <input type="text" id="excluded-input" class="form-control"
+                                   placeholder="Search airport..." autocomplete="off">
+                        </div>
+                        <button type="submit" class="btn btn-primary fw-bold">Save</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Password -->
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h5 class="text-white mb-3">Change Password</h5>
+                    <form action="/settings/password" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label text-muted small">Current Password</label>
+                            <div class="input-group">
+                                <input type="password" name="current_password" id="current_password" class="form-control" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('current_password')">&#128065;</button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-muted small">New Password</label>
+                            <div class="input-group">
+                                <input type="password" name="new_password" id="new_password" class="form-control" required minlength="8">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('new_password')">&#128065;</button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-muted small">Confirm New Password</label>
+                            <div class="input-group">
+                                <input type="password" name="confirm_password" id="confirm_password" class="form-control" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('confirm_password')">&#128065;</button>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary fw-bold">Update Password</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        initAirportInput('excluded-input', 'excluded-hidden');
+        initBroskiAutocomplete('broski-username');
+    });
+</script>
+{% endblock %}

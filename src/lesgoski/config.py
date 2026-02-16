@@ -26,3 +26,7 @@ NEARBY_AIRPORT_RADIUS_KM: float = float(os.getenv("NEARBY_AIRPORT_RADIUS_KM", 10
 # Scheduler
 UPDATE_INTERVAL_MINUTES: int = int(os.getenv("UPDATE_INTERVAL_MINUTES", 180))
 FLIGHT_STALENESS_HOURS: int = int(os.getenv("FLIGHT_STALENESS_HOURS", 24))
+
+# Auth
+SECRET_KEY: str = os.getenv("SECRET_KEY", "CHANGE-ME-IN-PRODUCTION")
+INVITE_CODE: str = os.getenv("INVITE_CODE", "")

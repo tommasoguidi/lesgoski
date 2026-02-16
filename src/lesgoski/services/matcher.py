@@ -57,6 +57,13 @@ class DealMatcher:
         if allowed:
             base_filters.append(Outbound.destination.in_(allowed))
 
+        # Exclude user's excluded destinations (e.g. already visited)
+        excluded = []
+        if profile.user:
+            excluded = profile.user.excluded_destinations
+        if excluded:
+            base_filters.append(~Outbound.destination.in_(excluded))
+
         # --- Pass 1: strict join (same airport) — fast, handles most deals ---
         query_strict = (
             self.db.query(Outbound, Inbound)
@@ -85,6 +92,8 @@ class DealMatcher:
             )
             if allowed:
                 all_out_dests &= set(allowed)
+            if excluded:
+                all_out_dests -= set(excluded)
 
             for dest in all_out_dests:
                 nearby = get_nearby_airports(dest)

@@ -41,6 +41,31 @@ def init_db():
     import lesgoski.database.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
+
+
+def _run_migrations():
+    """Run any pending column additions for existing tables."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+
+    # Migration 1: Add user_id to search_profiles
+    if 'search_profiles' in inspector.get_table_names():
+        columns = [c['name'] for c in inspector.get_columns('search_profiles')]
+        if 'user_id' not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE search_profiles ADD COLUMN user_id INTEGER REFERENCES users(id)"
+                ))
+
+    # Migration 2: Add favourite_profile_id to users
+    if 'users' in inspector.get_table_names():
+        columns = [c['name'] for c in inspector.get_columns('users')]
+        if 'favourite_profile_id' not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE users ADD COLUMN favourite_profile_id INTEGER REFERENCES search_profiles(id)"
+                ))
 
 def get_db():
     """

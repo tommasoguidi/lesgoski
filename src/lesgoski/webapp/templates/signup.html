@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h2 class="h4 text-white mb-4 text-center">Sign Up</h2>
+
+                    {% if error %}
+                    <div class="alert alert-danger py-2 small">{{ error }}</div>
+                    {% endif %}
+
+                    <form action="/signup" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label text-white">Username</label>
+                            <input type="text" name="username" class="form-control" required autofocus
+                                   minlength="3" placeholder="At least 3 characters">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-white">Password</label>
+                            <div class="input-group">
+                                <input type="password" name="password" id="signup_password" class="form-control" required
+                                       minlength="8" placeholder="At least 8 characters">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_password')">&#128065;</button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-white">Confirm Password</label>
+                            <div class="input-group">
+                                <input type="password" name="confirm_password" id="signup_confirm" class="form-control" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_confirm')">&#128065;</button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-white">Invite Code</label>
+                            <input type="text" name="invite_code" class="form-control" required
+                                   placeholder="Ask the admin for the code">
+                        </div>
+                        <button type="submit" class="btn btn-success w-100 fw-bold">Create Account</button>
+                    </form>
+
+                    <div class="text-center mt-3">
+                        <a href="/login" class="text-muted small">Already have an account? Login</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

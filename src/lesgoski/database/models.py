@@ -1,10 +1,64 @@
 # database/models.py
-from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, ForeignKey, Index
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, ForeignKey, Index, Table
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from lesgoski.database.engine import Base
 from lesgoski.core.schemas import StrategyConfig
 import json
+
+
+# --- Association table for profile sharing ---
+profile_viewers = Table(
+    'profile_viewers', Base.metadata,
+    Column('profile_id', Integer, ForeignKey('search_profiles.id'), primary_key=True),
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+)
+
+
+class User(Base):
+    """
+    Registered user. Each user has their own profiles, ntfy topic,
+    and excluded destinations.
+    """
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False, index=True)
+    hashed_password = Column(String, nullable=False)
+    ntfy_topic = Column(String, nullable=True)
+    _excluded_destinations = Column("excluded_destinations", String, nullable=True)
+    favourite_profile_id = Column(Integer, ForeignKey('search_profiles.id'), nullable=True)
+    created_at = Column(DateTime, default=func.now())
+
+    profiles = relationship("SearchProfile", back_populates="user", foreign_keys="SearchProfile.user_id")
+    favourite_profile = relationship("SearchProfile", foreign_keys=[favourite_profile_id])
+
+    @property
+    def excluded_destinations(self) -> list[str]:
+        if not self._excluded_destinations:
+            return []
+        return json.loads(self._excluded_destinations)
+
+    @excluded_destinations.setter
+    def excluded_destinations(self, value: list[str]):
+        self._excluded_destinations = json.dumps(value) if value else None
+
+
+class BroskiRequest(Base):
+    """
+    Mutual friendship request between two users.
+    Status: 'pending' (waiting for acceptance) or 'accepted' (mutual friends).
+    """
+    __tablename__ = 'broski_requests'
+
+    id = Column(Integer, primary_key=True)
+    from_user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    to_user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    status = Column(String, default='pending')  # 'pending' | 'accepted'
+    created_at = Column(DateTime, default=func.now())
+
+    from_user = relationship("User", foreign_keys=[from_user_id])
+    to_user = relationship("User", foreign_keys=[to_user_id])
 
 
 class ScanLog(Base):
@@ -70,6 +124,10 @@ class SearchProfile(Base):
     is_active = Column(Boolean, default=True)
     updated_at = Column(DateTime, default=func.now())
     _notify_destinations = Column("notify_destinations", String, nullable=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+
+    user = relationship("User", back_populates="profiles", foreign_keys=[user_id])
+    viewers = relationship("User", secondary=profile_viewers)
 
     @property
     def origins(self) -> list[str]:

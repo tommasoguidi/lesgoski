@@ -8,7 +8,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from lesgoski.database.engine import Base
-from lesgoski.database.models import Flight, SearchProfile, Deal
+from lesgoski.database.models import Flight, SearchProfile, Deal, User, BroskiRequest
+from lesgoski.webapp.auth import hash_password
 
 
 @pytest.fixture
@@ -69,6 +70,18 @@ def make_flight(
     return flight
 
 
+def make_user(db, *, username="alice", password="testpass123", ntfy_topic="lesgoski-test-42"):
+    """Create and persist a User with sensible defaults."""
+    user = User(
+        username=username,
+        hashed_password=hash_password(password),
+        ntfy_topic=ntfy_topic,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
 def make_profile(
     db,
     *,
@@ -78,6 +91,7 @@ def make_profile(
     max_price=100.0,
     strategy_dict=None,
     allowed_destinations=None,
+    user=None,
 ):
     """Create and persist a SearchProfile with a default weekend strategy."""
     if origins is None:
@@ -99,6 +113,20 @@ def make_profile(
     profile.is_active = True
     if allowed_destinations:
         profile.allowed_destinations = allowed_destinations
+    if user:
+        profile.user_id = user.id
     db.add(profile)
     db.flush()
     return profile
+
+
+def make_broski_request(db, *, from_user, to_user, status="pending"):
+    """Create and persist a BroskiRequest."""
+    req = BroskiRequest(
+        from_user_id=from_user.id,
+        to_user_id=to_user.id,
+        status=status,
+    )
+    db.add(req)
+    db.flush()
+    return req

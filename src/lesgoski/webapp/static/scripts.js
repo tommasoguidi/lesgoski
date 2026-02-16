@@ -1,6 +1,83 @@
 // webapp/static/scripts.js
 
 // ==========================================
+// PASSWORD VISIBILITY TOGGLE
+// ==========================================
+
+function togglePasswordVisibility(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+// ==========================================
+// BROSKI USERNAME AUTOCOMPLETE
+// ==========================================
+
+function initBroskiAutocomplete(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    const wrapper = input.parentElement;
+    wrapper.style.position = 'relative';
+
+    // Create dropdown (reuse airport-dropdown styling)
+    const dropdown = document.createElement('div');
+    dropdown.className = 'airport-dropdown';
+    wrapper.appendChild(dropdown);
+
+    let selecting = false;
+
+    input.addEventListener('input', async () => {
+        const query = input.value.trim();
+        if (query.length < 2) {
+            dropdown.innerHTML = '';
+            dropdown.style.display = 'none';
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+            const users = await res.json();
+
+            dropdown.innerHTML = '';
+            if (users.length === 0) {
+                dropdown.style.display = 'none';
+                return;
+            }
+
+            users.forEach(u => {
+                const item = document.createElement('div');
+                item.className = 'airport-dropdown-item';
+                item.textContent = u.username;
+                item.addEventListener('mousedown', () => { selecting = true; });
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    input.value = u.username;
+                    dropdown.innerHTML = '';
+                    dropdown.style.display = 'none';
+                    selecting = false;
+                });
+                dropdown.appendChild(item);
+            });
+            dropdown.style.display = 'block';
+        } catch (err) {
+            console.error('Broski search failed:', err);
+            dropdown.style.display = 'none';
+        }
+    });
+
+    input.addEventListener('blur', () => {
+        setTimeout(() => {
+            if (!selecting) {
+                dropdown.style.display = 'none';
+            }
+            selecting = false;
+        }, 150);
+    });
+}
+
+// ==========================================
 // DEALS PAGE — Filters
 // ==========================================
 

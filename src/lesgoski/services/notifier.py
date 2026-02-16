@@ -7,7 +7,17 @@ from lesgoski.config import NTFY_TOPIC, WEBAPP_URL
 
 logger = logging.getLogger(__name__)
 
-NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}" if NTFY_TOPIC else None
+
+def _get_ntfy_url(profile: SearchProfile) -> str | None:
+    """Resolve the ntfy URL for a profile: per-user topic first, global fallback."""
+    topic = None
+    if profile.user and profile.user.ntfy_topic:
+        topic = profile.user.ntfy_topic
+    elif NTFY_TOPIC:
+        topic = NTFY_TOPIC
+    if not topic:
+        return None
+    return f"https://ntfy.sh/{topic}"
 
 
 def _build_booking_url(deal: Deal) -> str:
@@ -41,8 +51,9 @@ def notify_new_deals(db: Session, profile: SearchProfile):
     1. Per-destination notifications for "belled" destinations (click → webapp deep-link)
     2. A generic summary notification if there are un-belled new deals
     """
-    if not NTFY_URL:
-        logger.warning("NTFY_TOPIC not set, skipping notifications.")
+    ntfy_url = _get_ntfy_url(profile)
+    if not ntfy_url:
+        logger.warning("No ntfy topic for profile %s, skipping notifications.", profile.name)
         return
 
     actual_deals = (
@@ -84,7 +95,7 @@ def notify_new_deals(db: Session, profile: SearchProfile):
 
         try:
             requests.post(
-                NTFY_URL,
+                ntfy_url,
                 headers={
                     "Title": title,
                     "Click": url,
@@ -115,7 +126,7 @@ def notify_new_deals(db: Session, profile: SearchProfile):
 
         try:
             requests.post(
-                NTFY_URL,
+                ntfy_url,
                 headers={
                     "Title": title,
                     "Click": url,
@@ -142,10 +153,12 @@ def send_daily_digest(db: Session):
     Send a single digest notification summarizing the best deal
     per destination across all active profiles.
     """
-    if not NTFY_URL:
-        return
-
-    profiles = db.query(SearchProfile).filter(SearchProfile.is_active == True).all()
+    profiles = (
+        db.query(SearchProfile)
+        .options(joinedload(SearchProfile.user))
+        .filter(SearchProfile.is_active == True)
+        .all()
+    )
     if not profiles:
         return
 
@@ -169,6 +182,10 @@ def send_daily_digest(db: Session):
         if not best_by_dest:
             continue
 
+        ntfy_url = _get_ntfy_url(profile)
+        if not ntfy_url:
+            continue
+
         # Build digest message
         lines = []
         for deal in list(best_by_dest.values())[:15]:  # top 15 to keep it readable
@@ -182,7 +199,7 @@ def send_daily_digest(db: Session):
 
         try:
             requests.post(
-                NTFY_URL,
+                ntfy_url,
                 headers={
                     "Title": f"Daily Flight Digest - {profile.name}",
                     "Click": f"{WEBAPP_URL}/",

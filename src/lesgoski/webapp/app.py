@@ -7,16 +7,23 @@ from functools import lru_cache
 from pathlib import Path
 
 from lesgoski.webapp.utils import get_country_code, get_booking_links
+from lesgoski.webapp.auth import (
+    RedirectToLogin, get_current_user, require_user,
+    verify_password, hash_password, generate_ntfy_topic,
+    get_broskis, get_pending_broski_requests,
+)
 from lesgoski.services.airports import get_nearby_set
-from fastapi import FastAPI, Depends, Request, Form, BackgroundTasks
+from fastapi import FastAPI, Depends, Request, Form, BackgroundTasks, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session, joinedload
+from starlette.middleware.sessions import SessionMiddleware
 from lesgoski.database.engine import get_db, init_db, SessionLocal
-from lesgoski.database.models import Deal, SearchProfile
+from lesgoski.database.models import Deal, SearchProfile, User, BroskiRequest
 from lesgoski.core.schemas import StrategyConfig
 from lesgoski.services.orchestrator import update_single_profile
+from lesgoski.config import SECRET_KEY, INVITE_CODE
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,10 +36,23 @@ _WEBAPP_DIR = Path(__file__).parent
 # Ensure DB tables exist
 init_db()
 app = FastAPI()
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    max_age=30 * 24 * 3600,
+    https_only=False,  # Nginx terminates TLS; cookie still secure via SameSite
+    same_site="lax",
+)
 app.mount("/static", StaticFiles(directory=str(_WEBAPP_DIR / "static")), name="static")
 
 templates = Jinja2Templates(directory=str(_WEBAPP_DIR / "templates"))
 templates.env.globals.update(booking_links=get_booking_links)
+
+
+@app.exception_handler(RedirectToLogin)
+async def handle_redirect_to_login(request: Request, exc: RedirectToLogin):
+    return RedirectResponse("/login", status_code=303)
+
 
 @lru_cache(maxsize=1)
 def _load_airports() -> list[dict]:
@@ -62,23 +82,201 @@ def run_background_update(profile_id: int):
     finally:
         db.close()
 
-# --- ROUTES ---
+
+def _user_can_access(profile: SearchProfile, user: User) -> bool:
+    """Check if user owns the profile or is a viewer."""
+    if profile.user_id == user.id:
+        return True
+    return user in profile.viewers
+
+
+# --- AUTH ROUTES ---
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, user: User = Depends(get_current_user)):
+    if user:
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.post("/login")
+def login(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Form(...),
+    password: str = Form(...),
+):
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not verify_password(password, user.hashed_password):
+        return templates.TemplateResponse("login.html", {
+            "request": request, "error": "Invalid username or password",
+        })
+    request.session["user_id"] = user.id
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page(request: Request, user: User = Depends(get_current_user)):
+    if user:
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse("signup.html", {"request": request})
+
+
+@app.post("/signup")
+def signup(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    invite_code: str = Form(...),
+):
+    ctx = {"request": request}
+
+    if not INVITE_CODE or invite_code != INVITE_CODE:
+        ctx["error"] = "Invalid invite code"
+        return templates.TemplateResponse("signup.html", ctx)
+    if password != confirm_password:
+        ctx["error"] = "Passwords do not match"
+        return templates.TemplateResponse("signup.html", ctx)
+    if len(password) < 8:
+        ctx["error"] = "Password must be at least 8 characters"
+        return templates.TemplateResponse("signup.html", ctx)
+    if len(username) < 3:
+        ctx["error"] = "Username must be at least 3 characters"
+        return templates.TemplateResponse("signup.html", ctx)
+    if db.query(User).filter(User.username == username).first():
+        ctx["error"] = "Username already taken"
+        return templates.TemplateResponse("signup.html", ctx)
+
+    user = User(
+        username=username,
+        hashed_password=hash_password(password),
+        ntfy_topic=generate_ntfy_topic(),
+    )
+    db.add(user)
+    db.commit()
+    request.session["user_id"] = user.id
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)
+
+
+# --- SETTINGS ROUTES ---
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    success: str = None,
+    error: str = None,
+):
+    own_profiles = (
+        db.query(SearchProfile)
+        .filter(SearchProfile.user_id == user.id, SearchProfile.is_active == True)
+        .all()
+    )
+    shared_profiles = (
+        db.query(SearchProfile)
+        .filter(
+            SearchProfile.is_active == True,
+            SearchProfile.viewers.any(User.id == user.id),
+        )
+        .all()
+    )
+    broskis = get_broskis(db, user)
+    pending_requests = get_pending_broski_requests(db, user)
+
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "user": user,
+        "success": success,
+        "error": error,
+        "own_profiles": own_profiles,
+        "shared_profiles": shared_profiles,
+        "broskis": broskis,
+        "pending_requests": pending_requests,
+    })
+
+
+@app.post("/settings/save")
+def save_settings(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    excluded_destinations: str = Form(""),
+):
+    dest_list = [d.strip().upper() for d in excluded_destinations.split(',') if d.strip()]
+    user.excluded_destinations = dest_list
+    db.commit()
+    return RedirectResponse("/settings?success=Settings+saved", status_code=303)
+
+
+@app.post("/settings/password")
+def change_password(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    if not verify_password(current_password, user.hashed_password):
+        return RedirectResponse("/settings?error=Current+password+is+incorrect", status_code=303)
+    if new_password != confirm_password:
+        return RedirectResponse("/settings?error=New+passwords+do+not+match", status_code=303)
+    if len(new_password) < 8:
+        return RedirectResponse("/settings?error=Password+must+be+at+least+8+characters", status_code=303)
+    user.hashed_password = hash_password(new_password)
+    db.commit()
+    return RedirectResponse("/settings?success=Password+changed", status_code=303)
+
+
+# --- DEAL ROUTES ---
+
 @app.get("/", response_class=HTMLResponse)
-def view_deals(request: Request, profile_id: int = None, db: Session = Depends(get_db)):
-    all_profiles = db.query(SearchProfile).filter(SearchProfile.is_active == True).all()
+def view_deals(
+    request: Request,
+    profile_id: int = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    all_profiles = (
+        db.query(SearchProfile)
+        .filter(
+            SearchProfile.is_active == True,
+            (SearchProfile.user_id == user.id) | SearchProfile.viewers.any(User.id == user.id),
+        )
+        .all()
+    )
 
     # Logic: No profiles -> Go to create
     if not all_profiles:
         return RedirectResponse("/profile/new", status_code=303)
 
-    # Logic: No specific profile requested -> Load first
+    # Logic: No specific profile requested -> Use favourite, then first own, then first any
     current_profile = None
     if profile_id:
-        current_profile = db.get(SearchProfile,profile_id)
+        current_profile = db.get(SearchProfile, profile_id)
+        if current_profile and not _user_can_access(current_profile, user):
+            current_profile = None
 
     if not current_profile:
-        # Fallback to the first one available
-        return RedirectResponse(f"/?profile_id={all_profiles[0].id}", status_code=303)
+        # Pick best default: favourite > first own > first accessible
+        default_id = None
+        if user.favourite_profile_id:
+            fav = db.get(SearchProfile, user.favourite_profile_id)
+            if fav and fav.is_active and _user_can_access(fav, user):
+                default_id = fav.id
+        if not default_id:
+            own = [p for p in all_profiles if p.user_id == user.id]
+            default_id = own[0].id if own else all_profiles[0].id
+        return RedirectResponse(f"/?profile_id={default_id}", status_code=303)
 
     # Fetch deals for this profile
     deals = db.query(Deal).options(
@@ -91,12 +289,9 @@ def view_deals(request: Request, profile_id: int = None, db: Session = Depends(g
     deals = [d for d in deals if d.outbound and d.inbound]
 
     # Grouping Data — metro-area aware
-    # Each deal appears in all nearby airport groups so that e.g.
-    # a PSA→GRO / BCN→PSA deal shows up under both GRO and BCN.
     grouped = defaultdict(list)
     unique_countries = set()
     unique_destinations = set()
-    # Cache full names: first encountered full_name wins for each code
     dest_full_names: dict[str, str] = {}
 
     for deal in deals:
@@ -106,16 +301,11 @@ def view_deals(request: Request, profile_id: int = None, db: Session = Depends(g
         out_dest = deal.outbound.destination
         in_origin = deal.inbound.origin if deal.inbound else out_dest
 
-        # All airports in the metro area of the destination side
         area_codes = get_nearby_set(out_dest) | get_nearby_set(in_origin)
 
-        # Only keep codes that actually appear as outbound destinations
-        # in this profile's deals (avoid phantom groups for airports
-        # we have no flights to)
         for code in area_codes:
             grouped[code].append(deal)
 
-        # Track full names for the actual airports in this deal
         for code, full_name in [
             (out_dest, deal.outbound.destination_full or out_dest),
             (in_origin, (deal.inbound.origin_full if deal.inbound else None) or in_origin),
@@ -126,8 +316,6 @@ def view_deals(request: Request, profile_id: int = None, db: Session = Depends(g
             unique_countries.add(country_code)
             unique_destinations.add(code)
 
-    # Only show groups that have at least one deal with a direct flight
-    # to/from that airport (avoid empty groups for nearby-only codes)
     direct_codes = set()
     for deal in deals:
         if deal.outbound:
@@ -142,7 +330,6 @@ def view_deals(request: Request, profile_id: int = None, db: Session = Depends(g
         if dest_code not in direct_codes:
             continue
 
-        # Deduplicate (a deal can be added multiple times via area_codes)
         seen_ids = set()
         unique_deals = []
         for d in deal_list:
@@ -166,34 +353,51 @@ def view_deals(request: Request, profile_id: int = None, db: Session = Depends(g
 
     view_data.sort(key=lambda x: x["best_deal"].total_price_pp)
 
+    is_owner = current_profile.user_id == user.id
+
     return templates.TemplateResponse("deals.html", {
         "request": request,
+        "user": user,
         "destinations": view_data,
         "current_profile": current_profile,
         "all_profiles": all_profiles,
         "filter_countries": sorted(list(unique_countries)),
         "filter_destinations": sorted(list(unique_destinations)),
         "notify_destinations": current_profile.notify_destinations if current_profile else [],
+        "is_owner": is_owner,
     })
+
+
+# --- PROFILE ROUTES ---
 
 @app.get("/profile/new", response_class=HTMLResponse)
-def new_profile_form(request: Request):
+def new_profile_form(request: Request, user: User = Depends(require_user)):
     return templates.TemplateResponse("profile_form.html", {
-        "request": request, "profile": None, "is_new": True
+        "request": request, "user": user, "profile": None, "is_new": True,
     })
 
+
 @app.get("/profile/{pid}", response_class=HTMLResponse)
-def edit_profile_form(request: Request, pid: int, db: Session = Depends(get_db)):
-    profile = db.get(SearchProfile,pid)
+def edit_profile_form(
+    request: Request,
+    pid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    profile = db.get(SearchProfile, pid)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(status_code=404)
     return templates.TemplateResponse("profile_form.html", {
-        "request": request, "profile": profile, "is_new": False
+        "request": request, "user": user, "profile": profile, "is_new": False,
     })
+
 
 @app.post("/profile/save")
 async def save_profile(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    user: User = Depends(require_user),
     profile_id: int = Form(None),
     name: str = Form(...),
     origins: str = Form(...),
@@ -214,9 +418,11 @@ async def save_profile(
         return HTMLResponse(f"Invalid Strategy JSON: {e}", status_code=400)
 
     if profile_id:
-        profile = db.get(SearchProfile,profile_id)
+        profile = db.get(SearchProfile, profile_id)
+        if not profile or profile.user_id != user.id:
+            raise HTTPException(status_code=403)
     else:
-        profile = SearchProfile()
+        profile = SearchProfile(user_id=user.id)
         db.add(profile)
 
     profile.name = name
@@ -234,8 +440,16 @@ async def save_profile(
 
     return RedirectResponse(f"/?profile_id={profile.id}", status_code=303)
 
+
 @app.post("/update/{profile_id}")
-def trigger_manual_update(profile_id: int):
+def trigger_manual_update(
+    profile_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    profile = db.get(SearchProfile, profile_id)
+    if not profile or not _user_can_access(profile, user):
+        raise HTTPException(status_code=404)
     try:
         run_background_update(profile_id)
         return {"status": "success"}
@@ -243,22 +457,227 @@ def trigger_manual_update(profile_id: int):
         logger.error(f"Manual update failed: {e}", exc_info=True)
         return HTMLResponse(content=f"Update failed: {e}", status_code=500)
 
+
 @app.post("/profile/{pid}/delete")
-def delete_profile(pid: int, db: Session = Depends(get_db)):
+def delete_profile(
+    pid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
     profile = db.get(SearchProfile, pid)
-    if profile:
+    if profile and profile.user_id == user.id:
         profile.is_active = False
         db.commit()
     return RedirectResponse("/", status_code=303)
+
+
+# --- SHARING ROUTES ---
+
+@app.post("/profile/{pid}/share")
+def share_profile(
+    pid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    share_user_id: int = Form(...),
+):
+    profile = db.get(SearchProfile, pid)
+    if not profile or profile.user_id != user.id:
+        return RedirectResponse("/settings?error=Profile+not+found", status_code=303)
+    target = db.get(User, share_user_id)
+    if not target or target.id == user.id:
+        return RedirectResponse("/settings?error=Invalid+user", status_code=303)
+    # Verify they are broskis
+    broskis = get_broskis(db, user)
+    if target not in broskis:
+        return RedirectResponse("/settings?error=You+can+only+share+with+broskis", status_code=303)
+    if target not in profile.viewers:
+        profile.viewers.append(target)
+        db.commit()
+    return RedirectResponse("/settings?success=Profile+shared", status_code=303)
+
+
+@app.post("/profile/{pid}/unshare")
+def unshare_profile(
+    pid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    unshare_user_id: int = Form(...),
+):
+    profile = db.get(SearchProfile, pid)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(status_code=404)
+    target = db.get(User, unshare_user_id)
+    if target and target in profile.viewers:
+        profile.viewers.remove(target)
+        db.commit()
+    return RedirectResponse("/settings?success=Viewer+removed", status_code=303)
+
+
+# --- BROSKI ROUTES ---
+
+@app.post("/broski/request")
+def send_broski_request(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    broski_username: str = Form(...),
+):
+    target = db.query(User).filter(User.username == broski_username).first()
+    if not target or target.id == user.id:
+        return RedirectResponse("/settings?error=User+not+found", status_code=303)
+
+    # Check if already broskis or pending
+    from sqlalchemy import or_, and_
+    existing = db.query(BroskiRequest).filter(
+        or_(
+            and_(BroskiRequest.from_user_id == user.id, BroskiRequest.to_user_id == target.id),
+            and_(BroskiRequest.from_user_id == target.id, BroskiRequest.to_user_id == user.id),
+        )
+    ).first()
+    if existing:
+        msg = "Already+broskis" if existing.status == "accepted" else "Request+already+pending"
+        return RedirectResponse(f"/settings?error={msg}", status_code=303)
+
+    req = BroskiRequest(from_user_id=user.id, to_user_id=target.id)
+    db.add(req)
+    db.commit()
+    return RedirectResponse("/settings?success=Broski+request+sent", status_code=303)
+
+
+@app.post("/broski/accept/{request_id}")
+def accept_broski_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    req = db.get(BroskiRequest, request_id)
+    if not req or req.to_user_id != user.id or req.status != "pending":
+        raise HTTPException(status_code=404)
+    req.status = "accepted"
+    db.commit()
+    return RedirectResponse("/settings?success=Broski+accepted", status_code=303)
+
+
+@app.post("/broski/decline/{request_id}")
+def decline_broski_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    req = db.get(BroskiRequest, request_id)
+    if not req or req.to_user_id != user.id or req.status != "pending":
+        raise HTTPException(status_code=404)
+    db.delete(req)
+    db.commit()
+    return RedirectResponse("/settings?success=Request+declined", status_code=303)
+
+
+@app.post("/broski/remove/{broski_id}")
+def remove_broski(
+    broski_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    from sqlalchemy import or_, and_
+    req = db.query(BroskiRequest).filter(
+        BroskiRequest.status == "accepted",
+        or_(
+            and_(BroskiRequest.from_user_id == user.id, BroskiRequest.to_user_id == broski_id),
+            and_(BroskiRequest.from_user_id == broski_id, BroskiRequest.to_user_id == user.id),
+        )
+    ).first()
+    if not req:
+        raise HTTPException(status_code=404)
+
+    # Auto-unshare: remove this broski from all profiles owned by either user
+    target = db.get(User, broski_id)
+    if target:
+        my_profiles = db.query(SearchProfile).filter(SearchProfile.user_id == user.id).all()
+        for p in my_profiles:
+            if target in p.viewers:
+                p.viewers.remove(target)
+        their_profiles = db.query(SearchProfile).filter(SearchProfile.user_id == broski_id).all()
+        for p in their_profiles:
+            if user in p.viewers:
+                p.viewers.remove(user)
+
+    db.delete(req)
+    db.commit()
+    return RedirectResponse("/settings?success=Broski+removed", status_code=303)
+
+
+# --- FAVOURITE ROUTE ---
+
+@app.post("/settings/favourite")
+def set_favourite_profile(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    profile_id: int = Form(...),
+):
+    profile = db.get(SearchProfile, profile_id)
+    if not profile or not _user_can_access(profile, user):
+        raise HTTPException(status_code=404)
+    # Toggle: if already favourite, clear it; otherwise set it
+    if user.favourite_profile_id == profile_id:
+        user.favourite_profile_id = None
+    else:
+        user.favourite_profile_id = profile_id
+    db.commit()
+    return RedirectResponse("/settings?success=Default+profile+updated", status_code=303)
+
+
+# --- API ROUTES ---
 
 @app.get("/api/airports")
 def get_airports():
     return _load_airports()
 
+
+@app.get("/api/users/search")
+def search_users(
+    q: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Autocomplete endpoint for broski request username input.
+
+    Returns users whose username contains `q` (case-insensitive),
+    excluding: the current user, existing broskis, and users with
+    a pending request in either direction.
+    """
+    query = q.strip().lower()
+    if len(query) < 2:
+        return []
+
+    # IDs to exclude: self + anyone with an existing broski request (any status)
+    from sqlalchemy import or_, and_
+    existing_reqs = db.query(BroskiRequest).filter(
+        or_(
+            BroskiRequest.from_user_id == user.id,
+            BroskiRequest.to_user_id == user.id,
+        )
+    ).all()
+    exclude_ids = {user.id}
+    for req in existing_reqs:
+        exclude_ids.add(req.from_user_id)
+        exclude_ids.add(req.to_user_id)
+
+    matches = (
+        db.query(User)
+        .filter(
+            User.username.ilike(f"%{query}%"),
+            ~User.id.in_(exclude_ids),
+        )
+        .limit(8)
+        .all()
+    )
+    return [{"id": u.id, "username": u.username} for u in matches]
+
+
 @app.post("/api/notify-toggle")
 async def toggle_notify_destination(
     request: Request,
     db: Session = Depends(get_db),
+    user: User = Depends(require_user),
 ):
     """Toggle immediate notifications for a specific destination."""
     body = await request.json()
@@ -269,7 +688,7 @@ async def toggle_notify_destination(
         return {"error": "profile_id and destination required"}
 
     profile = db.get(SearchProfile, int(profile_id))
-    if not profile:
+    if not profile or not _user_can_access(profile, user):
         return {"error": "Profile not found"}
 
     current = profile.notify_destinations

@@ -1,8 +1,52 @@
 /* webapp/static/style.css */
-body { 
-    background-color: #0d1117; 
-    color: #c9d1d9; 
+body {
+    background-color: #0d1117;
+    color: #c9d1d9;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Profile switcher dropdown */
+.profile-switcher {
+    cursor: pointer;
+    transition: color 0.15s;
+}
+.profile-switcher:hover {
+    color: #58a6ff !important;
+}
+.profile-switcher::after {
+    font-size: 0.6em;
+    vertical-align: middle;
+    margin-left: 0.4rem;
+}
+
+/* Favourite star */
+.favourite-star {
+    text-decoration: none !important;
+    font-size: 1.2rem;
+    line-height: 1;
+}
+.star-active {
+    color: #d29922;
+}
+.star-inactive {
+    color: #484f58;
+    transition: color 0.15s;
+}
+.favourite-star:hover .star-inactive {
+    color: #d29922;
+}
+
+/* Broski chips */
+.broski-chip {
+    background: rgba(31, 111, 235, 0.15);
+    border: 1px solid rgba(31, 111, 235, 0.3);
+    border-radius: 1rem;
+    padding: 0.15rem 0.6rem;
+}
+
+/* Viewer badges */
+.viewer-badge {
+    cursor: default;
 }
 
 .refresh-icon {

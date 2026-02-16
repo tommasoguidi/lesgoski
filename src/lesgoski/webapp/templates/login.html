@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h2 class="h4 text-white mb-4 text-center">Login</h2>
+
+                    {% if error %}
+                    <div class="alert alert-danger py-2 small">{{ error }}</div>
+                    {% endif %}
+
+                    <form action="/login" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label text-white">Username</label>
+                            <input type="text" name="username" class="form-control" required autofocus>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-white">Password</label>
+                            <div class="input-group">
+                                <input type="password" name="password" id="login_password" class="form-control" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('login_password')">&#128065;</button>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 fw-bold">Login</button>
+                    </form>
+
+                    <div class="text-center mt-3">
+                        <a href="/signup" class="text-muted small">Don't have an account? Sign up</a>
+                    </div>
+
+                    <p class="text-muted text-center mt-3 mb-0" style="font-size: 0.7rem;">
+                        This site uses a session cookie to keep you logged in. No tracking.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
