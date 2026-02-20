@@ -8,8 +8,8 @@ from pathlib import Path
 
 from lesgoski.webapp.utils import get_country_code, get_booking_links
 from lesgoski.webapp.auth import (
-    RedirectToLogin, get_current_user, require_user,
-    verify_password, hash_password, generate_ntfy_topic,
+    RedirectToLogin, get_current_user, require_user, require_admin,
+    verify_password, hash_password, generate_ntfy_topic, generate_invite_token,
     get_broskis, get_pending_broski_requests,
 )
 from lesgoski.services.airports import get_nearby_set
@@ -20,10 +20,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session, joinedload
 from starlette.middleware.sessions import SessionMiddleware
 from lesgoski.database.engine import get_db, init_db, SessionLocal
-from lesgoski.database.models import Deal, SearchProfile, User, BroskiRequest
+from lesgoski.database.models import Deal, SearchProfile, User, BroskiRequest, InviteToken
 from lesgoski.core.schemas import StrategyConfig
 from lesgoski.services.orchestrator import update_single_profile
-from lesgoski.config import SECRET_KEY, INVITE_CODE
+from lesgoski.config import SECRET_KEY, WEBAPP_URL
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,10 +116,10 @@ def login(
 
 
 @app.get("/signup", response_class=HTMLResponse)
-def signup_page(request: Request, user: User = Depends(get_current_user)):
+def signup_page(request: Request, user: User = Depends(get_current_user), invite: str = None):
     if user:
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("signup.html", {"request": request})
+    return templates.TemplateResponse("signup.html", {"request": request, "invite": invite})
 
 
 @app.post("/signup")
@@ -131,10 +131,22 @@ def signup(
     confirm_password: str = Form(...),
     invite_code: str = Form(...),
 ):
+    from datetime import datetime, timezone, timedelta
     ctx = {"request": request}
 
-    if not INVITE_CODE or invite_code != INVITE_CODE:
-        ctx["error"] = "Invalid invite code"
+    # Validate invite token against the database (single-use, 7-day lifetime)
+    token_obj = (
+        db.query(InviteToken)
+        .filter(
+            InviteToken.token == invite_code,
+            InviteToken.used_by == None,
+            InviteToken.revoked == False,
+            InviteToken.created_at >= datetime.now(timezone.utc) - timedelta(days=7),
+        )
+        .first()
+    )
+    if not token_obj:
+        ctx["error"] = "Invalid or already used invite code"
         return templates.TemplateResponse("signup.html", ctx)
     if password != confirm_password:
         ctx["error"] = "Passwords do not match"
@@ -156,6 +168,13 @@ def signup(
     )
     db.add(user)
     db.commit()
+    db.refresh(user)
+
+    # Consume the token
+    token_obj.used_by = user.id
+    token_obj.used_at = datetime.now(timezone.utc)
+    db.commit()
+
     request.session["user_id"] = user.id
     return RedirectResponse("/", status_code=303)
 
@@ -192,6 +211,23 @@ def settings_page(
     broskis = get_broskis(db, user)
     pending_requests = get_pending_broski_requests(db, user)
 
+    # Admin-only: load invite tokens (active + used within last 7 days)
+    invite_tokens = []
+    if user.is_admin:
+        from datetime import datetime, timezone, timedelta
+        from sqlalchemy import or_
+        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        invite_tokens = (
+            db.query(InviteToken)
+            .filter(
+                InviteToken.created_by == user.id,
+                InviteToken.revoked == False,
+                or_(InviteToken.used_by == None, InviteToken.used_at >= cutoff),
+            )
+            .order_by(InviteToken.used_at.asc().nullsfirst(), InviteToken.created_at.asc())
+            .all()
+        )
+
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "user": user,
@@ -201,6 +237,8 @@ def settings_page(
         "shared_profiles": shared_profiles,
         "broskis": broskis,
         "pending_requests": pending_requests,
+        "invite_tokens": invite_tokens,
+        "webapp_url": WEBAPP_URL,
     })
 
 
@@ -235,6 +273,49 @@ def change_password(
     user.hashed_password = hash_password(new_password)
     db.commit()
     return RedirectResponse("/settings?success=Password+changed", status_code=303)
+
+
+# --- ADMIN ROUTES ---
+
+@app.post("/admin/tokens/generate")
+def generate_token(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Generate a new single-use invite token."""
+    for _ in range(5):
+        candidate = generate_invite_token()
+        if not db.query(InviteToken).filter(InviteToken.token == candidate).first():
+            break
+    db.add(InviteToken(token=candidate, created_by=user.id))
+    db.commit()
+    return RedirectResponse("/settings", status_code=303)
+
+
+@app.post("/admin/tokens/{token_id}/revoke")
+def revoke_token(
+    token_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Soft-revoke an unused invite token."""
+    token = db.get(InviteToken, token_id)
+    if not token or token.used_by is not None:
+        return RedirectResponse("/settings", status_code=303)
+    token.revoked = True
+    db.commit()
+    return RedirectResponse("/settings", status_code=303)
+
+
+# --- API ROUTES ---
+
+@app.get("/api/username-available")
+def username_available(username: str = "", db: Session = Depends(get_db)):
+    """Returns {"available": bool}. Used by the signup form for live feedback."""
+    if len(username) < 3:
+        return {"available": None}
+    taken = db.query(User).filter(User.username == username).first()
+    return {"available": taken is None}
 
 
 # --- DEAL ROUTES ---

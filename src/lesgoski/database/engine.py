@@ -42,6 +42,7 @@ def init_db():
 
     Base.metadata.create_all(bind=engine)
     _run_migrations()
+    seed_admin()
 
 
 def _run_migrations():
@@ -66,6 +67,83 @@ def _run_migrations():
                 conn.execute(text(
                     "ALTER TABLE users ADD COLUMN favourite_profile_id INTEGER REFERENCES search_profiles(id)"
                 ))
+
+    # Migration 3: Add is_admin to users
+    if 'users' in inspector.get_table_names():
+        columns = [c['name'] for c in inspector.get_columns('users')]
+        if 'is_admin' not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"
+                ))
+
+    # Migration 4: Create invite_tokens table
+    if 'invite_tokens' not in inspector.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE invite_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    token VARCHAR NOT NULL UNIQUE,
+                    created_by INTEGER NOT NULL REFERENCES users(id),
+                    used_by INTEGER REFERENCES users(id),
+                    revoked INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT (datetime('now')),
+                    used_at DATETIME
+                )
+            """))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX ix_invite_tokens_token ON invite_tokens (token)"
+            ))
+
+def seed_admin():
+    """
+    Seeds the admin user from ADMIN_USERNAME / ADMIN_PASSWORD env vars.
+    - Creates the user if it doesn't exist.
+    - Promotes to admin if it exists but isn't one.
+    - Always updates password from env (allows credential rotation via .env).
+    - Assigns all orphaned SearchProfiles (user_id IS NULL) to the admin.
+    All imports are local to avoid circular import with auth.py.
+    """
+    import logging
+    from lesgoski.config import ADMIN_USERNAME, ADMIN_PASSWORD
+    from lesgoski.database.models import User, SearchProfile
+    from lesgoski.webapp.auth import hash_password
+
+    logger = logging.getLogger(__name__)
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        return
+
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.username == ADMIN_USERNAME).first()
+        if admin is None:
+            admin = User(
+                username=ADMIN_USERNAME,
+                hashed_password=hash_password(ADMIN_PASSWORD),
+                is_admin=True,
+            )
+            db.add(admin)
+            db.flush()
+            logger.info(f"Admin user '{ADMIN_USERNAME}' created.")
+        else:
+            admin.hashed_password = hash_password(ADMIN_PASSWORD)
+            if not admin.is_admin:
+                admin.is_admin = True
+                logger.info(f"User '{ADMIN_USERNAME}' promoted to admin.")
+
+        orphaned = db.query(SearchProfile).filter(SearchProfile.user_id == None).all()
+        if orphaned:
+            for p in orphaned:
+                p.user_id = admin.id
+            logger.info(f"Assigned {len(orphaned)} orphaned profile(s) to admin '{ADMIN_USERNAME}'.")
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Admin seeding failed: {e}", exc_info=True)
+    finally:
+        db.close()
+
 
 def get_db():
     """

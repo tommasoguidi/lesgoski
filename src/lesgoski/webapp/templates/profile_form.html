@@ -10,49 +10,52 @@
                     <h2 class="h4 mb-0 text-white">{{ 'Create New Profile' if is_new else 'Edit Profile: ' + profile.name }}</h2>
                 </div>
                 <div class="card-body p-4">
-                    <form action="/profile/save" method="POST">
+                    <form action="/profile/save" method="POST" id="profile-save-form">
                         {% if not is_new %}
                         <input type="hidden" name="profile_id" value="{{ profile.id }}">
                         {% endif %}
 
                         <div class="mb-3">
-                            <label class="form-label text-white">Profile Name</label>
-                            <input type="text" name="name" class="form-control"
+                            <label for="name" class="visually-hidden">Profile Name</label>
+                            <input type="text" name="name" id="name" class="form-control"
                                    value="{{ profile.name if profile else '' }}"
-                                   required placeholder="e.g. Weekend Escape">
+                                   required placeholder="Profile name (e.g., Weekend Trips)" aria-label="Profile name">
                         </div>
 
                         <div class="row g-3 mb-3">
                             <div class="col-md-6">
-                                <label class="form-label text-white">Origins</label>
+                                <label for="origins-input" class="visually-hidden">Origins</label>
                                 <div class="airport-input-wrapper">
                                     <input type="hidden" name="origins" id="origins-hidden"
                                            value="{{ profile.origins|join(',') if profile else '' }}">
                                     <input type="text" id="origins-input" class="form-control"
-                                           placeholder="Search airport..." autocomplete="off">
+                                           placeholder="Departure airports..." autocomplete="off" aria-label="Departure airports">
                                 </div>
                             </div>
                             <div class="col-md-3">
-                                <label class="form-label text-white">Max Price (pp)</label>
-                                <input type="number" step="0.1" name="max_price" class="form-control"
-                                       value="{{ profile.max_price if profile else 100 }}" required>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-dark border-secondary text-muted">&euro;</span>
+                                    <input type="number" step="0.1" name="max_price" id="max_price" class="form-control"
+                                           value="{{ profile.max_price if profile else 100 }}" required placeholder="Max price" aria-label="Maximum price per person">
+                                </div>
                             </div>
                             <div class="col-md-3">
-                                <label class="form-label text-white">Adults</label>
-                                <input type="number" name="adults" class="form-control"
-                                       value="{{ profile.adults if profile else 1 }}" required>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-dark border-secondary text-muted">&#128100;</span>
+                                    <input type="number" name="adults" id="adults" class="form-control"
+                                           value="{{ profile.adults if profile else 1 }}" required placeholder="Adults" min="1" aria-label="Number of adults">
+                                </div>
                             </div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label text-white">Allowed Destinations (optional)</label>
+                            <label for="destinations-input" class="visually-hidden">Allowed Destinations</label>
                             <div class="airport-input-wrapper">
                                 <input type="hidden" name="allowed_destinations" id="destinations-hidden"
                                        value="{{ profile.allowed_destinations|join(',') if profile and profile.allowed_destinations else '' }}">
                                 <input type="text" id="destinations-input" class="form-control"
-                                       placeholder="Search airport... (leave empty for all)" autocomplete="off">
+                                       placeholder="Allowed destinations (optional - leave empty for all)" autocomplete="off" aria-label="Allowed destinations">
                             </div>
-                            <div class="form-text text-muted">Leave empty to search all destinations.</div>
                         </div>
 
                         <!-- Strategy Visual Editor -->
@@ -86,11 +89,45 @@
         </div>
     </div>
 </div>
+
+<!-- Loading Overlay -->
+<div id="save-loading-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(13, 17, 23, 0.95); z-index: 9999; backdrop-filter: blur(4px);">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem; border-width: 0.25rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="text-white mt-4 mb-2" style="font-size: 1.1rem; font-weight: 500;">Saving profile and scanning for deals...</p>
+        <p class="text-muted small mb-0">This may take 10-30 seconds</p>
+    </div>
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         initAirportInput('origins-input', 'origins-hidden');
         initAirportInput('destinations-input', 'destinations-hidden');
         initStrategyEditor();
+
+        // Show loading overlay on form submit
+        const form = document.getElementById('profile-save-form');
+        const submitBtn = form.querySelector('button[type="submit"]');
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            // Show overlay
+            document.getElementById('save-loading-overlay').style.display = 'block';
+
+            // Disable submit button
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+            }
+
+            // Submit form after brief delay to ensure overlay renders
+            setTimeout(() => {
+                form.submit();
+            }, 100);
+        });
     });
 </script>
 {% endblock %}

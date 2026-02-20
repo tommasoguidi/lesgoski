@@ -14,31 +14,46 @@
 
                     <form action="/signup" method="POST">
                         <div class="mb-3">
-                            <label class="form-label text-white">Username</label>
-                            <input type="text" name="username" class="form-control" required autofocus
-                                   minlength="3" placeholder="At least 3 characters">
+                            <label for="username" class="visually-hidden">Username</label>
+                            <input type="text" name="username" id="username" class="form-control" required autofocus
+                                   minlength="3" placeholder="Username (min 3 characters)" aria-label="Username" autocomplete="username">
+                            <div class="valid-feedback">Username is available.</div>
+                            <div class="invalid-feedback">Username is already taken.</div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label text-white">Password</label>
+                            <label for="signup_password" class="visually-hidden">Password</label>
                             <div class="input-group">
                                 <input type="password" name="password" id="signup_password" class="form-control" required
-                                       minlength="8" placeholder="At least 8 characters">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_password')">&#128065;</button>
+                                       minlength="8" placeholder="Password (min 8 characters)" aria-label="Password">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_password')" aria-label="Toggle password visibility">
+                                    <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                    </svg>
+                                </button>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label text-white">Confirm Password</label>
+                            <label for="signup_confirm" class="visually-hidden">Confirm Password</label>
                             <div class="input-group">
-                                <input type="password" name="confirm_password" id="signup_confirm" class="form-control" required>
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_confirm')">&#128065;</button>
+                                <input type="password" name="confirm_password" id="signup_confirm" class="form-control" required placeholder="Confirm password" aria-label="Confirm password">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_confirm')" aria-label="Toggle password visibility">
+                                    <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                    </svg>
+                                </button>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label text-white">Invite Code</label>
-                            <input type="text" name="invite_code" class="form-control" required
-                                   placeholder="Ask the admin for the code">
+                            <label for="invite_code" class="visually-hidden">Invite Code</label>
+                            <input type="text" name="invite_code" id="invite_code"
+                                   class="form-control {% if invite %}is-valid{% endif %}"
+                                   required placeholder="Invite code" aria-label="Invite code"
+                                   value="{{ invite or '' }}">
+                            {% if invite %}<div class="valid-feedback">Invite code pre-filled from link.</div>{% endif %}
                         </div>
-                        <button type="submit" class="btn btn-success w-100 fw-bold">Create Account</button>
+                        <button type="submit" class="btn btn-success w-100">Create Account</button>
                     </form>
 
                     <div class="text-center mt-3">
@@ -49,4 +64,7 @@
         </div>
     </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', () => initUsernameValidator('username'));
+</script>
 {% endblock %}

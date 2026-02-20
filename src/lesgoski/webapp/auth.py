@@ -2,7 +2,7 @@
 import random
 
 import bcrypt
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from sqlalchemy import or_
@@ -41,6 +41,14 @@ def generate_ntfy_topic() -> str:
     return f"lesgoski-{w1}-{w2}-{num}"
 
 
+def generate_invite_token() -> str:
+    """Generate a random invite token like 'bright-forest-42'."""
+    w1 = random.choice(_WORDS)
+    w2 = random.choice(_WORDS)
+    num = random.randint(10, 99)
+    return f"{w1}-{w2}-{num}"
+
+
 class RedirectToLogin(Exception):
     pass
 
@@ -60,6 +68,13 @@ def require_user(request: Request, user: User = Depends(get_current_user)):
     """Raise RedirectToLogin if no user is logged in."""
     if user is None:
         raise RedirectToLogin()
+    return user
+
+
+def require_admin(user: User = Depends(require_user)) -> User:
+    """Raise HTTP 403 if the current user is not an admin."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 

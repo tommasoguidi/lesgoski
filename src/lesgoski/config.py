@@ -29,4 +29,7 @@ FLIGHT_STALENESS_HOURS: int = int(os.getenv("FLIGHT_STALENESS_HOURS", 24))
 
 # Auth
 SECRET_KEY: str = os.getenv("SECRET_KEY", "CHANGE-ME-IN-PRODUCTION")
-INVITE_CODE: str = os.getenv("INVITE_CODE", "")
+
+# Admin seeding (optional — set to bootstrap an admin account on startup)
+ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "")
+ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")

@@ -358,11 +358,11 @@ function initStrategyEditor() {
         try { existing = JSON.parse(dataStr); } catch (e) { /* use defaults */ }
     }
 
-    // Build outbound section
-    buildDaySection(editor, 'out', 'Outbound Departure', existing ? existing.out_days : { 4: [17, 24], 5: [0, 12] });
+    // Build outbound section - no days selected by default
+    buildDaySection(editor, 'out', 'Outbound Departure', existing ? existing.out_days : {});
 
-    // Build inbound section
-    buildDaySection(editor, 'in', 'Return Departure', existing ? existing.in_days : { 0: [0, 12], 6: [15, 24] });
+    // Build inbound section - no days selected by default
+    buildDaySection(editor, 'in', 'Return Departure', existing ? existing.in_days : {});
 
     // Build stay duration section
     const staySection = document.createElement('div');
@@ -558,5 +558,59 @@ function toggleNotification(btn, profileId, destination) {
     })
     .catch(err => {
         console.error('Failed to toggle notification:', err);
+    });
+}
+
+
+// ==========================================
+// CLIPBOARD / SHARE UTILITIES
+// ==========================================
+
+function copyToClipboard(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = 'Copied!';
+        btn.classList.replace('btn-outline-secondary', 'btn-success');
+        setTimeout(() => {
+            btn.innerHTML = orig;
+            btn.classList.replace('btn-success', 'btn-outline-secondary');
+        }, 2000);
+    });
+}
+
+function shareInviteLink(url) {
+    if (navigator.share) {
+        navigator.share({
+            title: 'Join Lesgoski',
+            text: "You've been invited to Lesgoski — a personal flight deal tracker.",
+            url: url
+        }).catch(() => {});
+    } else {
+        navigator.clipboard.writeText(url).then(() => alert('Invite link copied to clipboard:\n' + url));
+    }
+}
+
+
+// ==========================================
+// SIGNUP — Live Username Availability
+// ==========================================
+
+function initUsernameValidator(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    let timer;
+    input.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+            const val = input.value.trim();
+            input.classList.remove('is-valid', 'is-invalid');
+            if (val.length < 3) return;
+            try {
+                const res = await fetch(`/api/username-available?username=${encodeURIComponent(val)}`);
+                const { available } = await res.json();
+                if (available === true) input.classList.add('is-valid');
+                else if (available === false) input.classList.add('is-invalid');
+            } catch (e) {}
+        }, 400);
     });
 }

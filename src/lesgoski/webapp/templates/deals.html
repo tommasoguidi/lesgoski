@@ -95,13 +95,14 @@
     <div class="mb-4">
         <div class="d-flex align-items-center gap-2">
             <div class="dropdown d-inline-block">
-                <h1 class="h3 fw-bold text-white mb-0 dropdown-toggle profile-switcher"
-                    role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <button type="button"
+                        class="btn p-0 border-0 bg-transparent h3 fw-bold text-white mb-0 dropdown-toggle profile-switcher"
+                        data-bs-toggle="dropdown" aria-expanded="false" aria-label="Switch profile">
                     {% if current_profile.user_id != user.id and current_profile.user %}
                         <span class="text-muted fw-normal">{{ current_profile.user.username }}'s</span>
                     {% endif %}
                     {{ current_profile.name }}
-                </h1>
+                </button>
                 <ul class="dropdown-menu dropdown-menu-dark">
                     {% for p in all_profiles %}
                     <li>
@@ -151,11 +152,17 @@
                             <button class="btn btn-link p-0 ms-3 notify-bell"
                                     data-dest="{{ group.destination_code }}"
                                     onclick="toggleNotification(this, '{{ current_profile.id }}', '{{ group.destination_code }}')"
-                                    title="Toggle instant notifications for {{ group.destination_name }}">
+                                    title="Toggle instant notifications for {{ group.destination_name }}"
+                                    aria-label="Toggle notifications for {{ group.destination_name }}">
                                 {% if group.destination_code in notify_destinations %}
-                                    <span class="bell-icon bell-active">&#128276;</span>
+                                    <svg class="bell-icon bell-active" viewBox="0 0 24 24" fill="currentColor" style="width: 1.2rem; height: 1.2rem;">
+                                        <path d="M5.85 3.5a.75.75 0 0 0-1.117-1 9.719 9.719 0 0 0-2.348 4.876.75.75 0 0 0 1.479.248A8.219 8.219 0 0 1 5.85 3.5ZM19.267 2.5a.75.75 0 1 0-1.118 1 8.22 8.22 0 0 1 1.987 4.124.75.75 0 0 0 1.48-.248A9.72 9.72 0 0 0 19.266 2.5Z" />
+                                        <path fill-rule="evenodd" d="M12 2.25A6.75 6.75 0 0 0 5.25 9v.75a8.217 8.217 0 0 1-2.119 5.52.75.75 0 0 0 .298 1.206c1.544.57 3.16.99 4.831 1.243a3.75 3.75 0 1 0 7.48 0 24.583 24.583 0 0 0 4.83-1.244.75.75 0 0 0 .298-1.205 8.217 8.217 0 0 1-2.118-5.52V9A6.75 6.75 0 0 0 12 2.25ZM9.75 18c0-.034 0-.067.002-.1a25.05 25.05 0 0 0 4.496 0l.002.1a2.25 2.25 0 1 1-4.5 0Z" clip-rule="evenodd" />
+                                    </svg>
                                 {% else %}
-                                    <span class="bell-icon bell-inactive">&#128277;</span>
+                                    <svg class="bell-icon bell-inactive" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width: 1.2rem; height: 1.2rem;">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5" />
+                                    </svg>
                                 {% endif %}
                             </button>
                         </div>
@@ -183,7 +190,7 @@
                     <button class="btn btn-link text-decoration-none text-muted p-0 w-100 text-start d-flex justify-content-between align-items-center"
                             type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ group.destination_code }}">
                         <span class="small"><span class="text-primary fw-bold">{{ group.other_deals|length }} other dates</span> available</span>
-                        <span class="small">&#9660;</span>
+                        <!-- <span class="small">&#9660;</span> -->
                     </button>
 
                     <div class="collapse mt-2" id="collapse-{{ group.destination_code }}">
