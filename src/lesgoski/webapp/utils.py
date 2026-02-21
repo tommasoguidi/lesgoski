@@ -136,7 +136,7 @@ def get_booking_links(deal: Deal) -> list[dict]:
         return [{
             "label": "Book Now",
             "url": _build_ryanair_url(deal.outbound, adults, deal.inbound),
-            "class": "btn-light"
+            "class": "btn-outline-success"
         }]
     else:
         # Different airports: Two separate one-way links

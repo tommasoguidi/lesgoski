@@ -197,7 +197,7 @@ def settings_page(
 ):
     own_profiles = (
         db.query(SearchProfile)
-        .filter(SearchProfile.user_id == user.id, SearchProfile.is_active == True)
+        .filter(SearchProfile.user_id == user.id)
         .all()
     )
     shared_profiles = (
@@ -550,6 +550,20 @@ def delete_profile(
         profile.is_active = False
         db.commit()
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/profile/{pid}/toggle")
+def toggle_profile(
+    pid: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    profile = db.get(SearchProfile, pid)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(status_code=404)
+    profile.is_active = not profile.is_active
+    db.commit()
+    return RedirectResponse("/settings", status_code=303)
 
 
 # --- SHARING ROUTES ---

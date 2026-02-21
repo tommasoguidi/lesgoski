@@ -13,3 +13,4 @@ build/
 web.log
 *backup.csv
 lesgoski_screen/
+src/lesgoski/webapp/newUI/

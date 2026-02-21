@@ -34,14 +34,14 @@
                             </div>
                             <div class="col-md-3">
                                 <div class="input-group">
-                                    <span class="input-group-text bg-dark border-secondary text-muted">&euro;</span>
+                                    <span class="input-group-text">&euro;</span>
                                     <input type="number" step="0.1" name="max_price" id="max_price" class="form-control"
                                            value="{{ profile.max_price if profile else 100 }}" required placeholder="Max price" aria-label="Maximum price per person">
                                 </div>
                             </div>
                             <div class="col-md-3">
                                 <div class="input-group">
-                                    <span class="input-group-text bg-dark border-secondary text-muted">&#128100;</span>
+                                    <span class="input-group-text">&#128100;</span>
                                     <input type="number" name="adults" id="adults" class="form-control"
                                            value="{{ profile.adults if profile else 1 }}" required placeholder="Adults" min="1" aria-label="Number of adults">
                                 </div>

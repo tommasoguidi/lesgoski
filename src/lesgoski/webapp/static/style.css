@@ -337,6 +337,47 @@ h5 { font-size: 1rem; margin-bottom: var(--space-3); }
     border-color: #1f6feb;
 }
 
+/* --- iOS-STYLE TOGGLE SWITCH --- */
+.toggle-switch { display: none; }
+
+.toggle-switch + label {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background-color var(--transition-normal) var(--ease-smooth);
+    flex-shrink: 0;
+}
+
+.toggle-switch + label::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background-color: var(--text-muted);
+    border-radius: 50%;
+    transition: all var(--transition-normal) var(--ease-smooth);
+}
+
+.toggle-switch:checked + label {
+    background-color: var(--accent-green);
+    border-color: var(--accent-green);
+}
+
+.toggle-switch:checked + label::after {
+    left: 22px;
+    background-color: white;
+}
+
+.profile-inactive { opacity: 0.5; }
+.profile-inactive:hover { opacity: 0.75; }
+
 /* --- TYPOGRAPHY & PRICING --- */
 .price-huge { 
     font-size: 2.5rem; 
@@ -373,13 +414,18 @@ h5 { font-size: 1rem; margin-bottom: var(--space-3); }
     font-family: monospace; 
 }
 
-.flight-time { 
-    color: #8b949e; 
-    font-size: 0.9em; 
-    font-family: monospace; 
+.flight-time {
+    color: #8b949e;
+    font-size: 0.9em;
+    font-family: monospace;
 }
 
-.arrow { 
+.flight-row-mobile {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+.arrow {
     color: #484f58; 
     margin: 0 8px; 
 }
@@ -470,6 +516,12 @@ h5 { font-size: 1rem; margin-bottom: var(--space-3); }
     border-radius: 0.375rem;
     transition: all var(--transition-fast) ease;
     font-size: 1rem;
+}
+
+.input-group-text {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-default);
+    color: var(--text-muted);
 }
 
 /* Prevent zoom on mobile */
@@ -569,6 +621,22 @@ h5 { font-size: 1rem; margin-bottom: var(--space-3); }
 
     .nouislider-wrap {
         min-width: 100%;
+    }
+
+    /* Separator between flight rows and book buttons on mobile */
+    .deal-card .border-start-md {
+        border-top: 1px solid var(--border-default);
+        padding-top: 0.75rem;
+        margin-top: 0.5rem;
+    }
+
+    /* Prevent long destination names from overflowing */
+    .destination-title {
+        font-size: 1.1rem;
+        max-width: 55vw;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     /* Larger touch targets on mobile */
