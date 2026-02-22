@@ -1,67 +1,105 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container py-5">
-    <div class="row justify-content-center">
-        <div class="col-md-5">
-            <div class="card shadow">
-                <div class="card-body p-4">
-                    <h2 class="h4 text-white mb-4 text-center">Sign Up</h2>
+<div class="min-h-screen flex items-center justify-center p-6">
+    <div class="w-full max-w-sm">
 
-                    {% if error %}
-                    <div class="alert alert-danger py-2 small">{{ error }}</div>
-                    {% endif %}
+        <!-- Brand -->
+        <div class="flex flex-col items-center mb-10">
+            <h1 class="text-3xl font-bold tracking-tight text-white mb-2">lesgoski</h1>
+            <p class="text-sm text-slate-400">Find your next escape</p>
+        </div>
 
-                    <form action="/signup" method="POST">
-                        <div class="mb-3">
-                            <label for="username" class="visually-hidden">Username</label>
-                            <input type="text" name="username" id="username" class="form-control" required autofocus
-                                   minlength="3" placeholder="Username (min 3 characters)" aria-label="Username" autocomplete="username">
-                            <div class="valid-feedback">Username is available.</div>
-                            <div class="invalid-feedback">Username is already taken.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="signup_password" class="visually-hidden">Password</label>
-                            <div class="input-group">
-                                <input type="password" name="password" id="signup_password" class="form-control" required
-                                       minlength="8" placeholder="Password (min 8 characters)" aria-label="Password">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_password')" aria-label="Toggle password visibility">
-                                    <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="signup_confirm" class="visually-hidden">Confirm Password</label>
-                            <div class="input-group">
-                                <input type="password" name="confirm_password" id="signup_confirm" class="form-control" required placeholder="Confirm password" aria-label="Confirm password">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('signup_confirm')" aria-label="Toggle password visibility">
-                                    <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="invite_code" class="visually-hidden">Invite Code</label>
-                            <input type="text" name="invite_code" id="invite_code"
-                                   class="form-control {% if invite %}is-valid{% endif %}"
-                                   required placeholder="Invite code" aria-label="Invite code"
-                                   value="{{ invite or '' }}">
-                            {% if invite %}<div class="valid-feedback">Invite code pre-filled from link.</div>{% endif %}
-                        </div>
-                        <button type="submit" class="btn btn-success w-100">Create Account</button>
-                    </form>
+        <!-- Card -->
+        <div class="bg-card-dark rounded-3xl p-8 shadow-xl border border-slate-800">
+            <h2 class="text-xl font-semibold text-white mb-8 text-center">Sign Up</h2>
 
-                    <div class="text-center mt-3">
-                        <a href="/login" class="text-muted small">Already have an account? Login</a>
+            {% if error %}
+            <div class="mb-6 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            <form action="/signup" method="POST" class="space-y-5">
+
+                <!-- Username -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-medium text-slate-400 ml-1" for="username">Username</label>
+                    <div class="relative group">
+                        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">person</span>
+                        <input type="text" name="username" id="username"
+                               class="block w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                               placeholder="Username (min 3 chars)" required autofocus minlength="3" autocomplete="username">
+                    </div>
+                    <p id="username-feedback" class="text-xs ml-1 hidden"></p>
+                </div>
+
+                <!-- Password -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-medium text-slate-400 ml-1" for="signup_password">Password</label>
+                    <div class="relative group">
+                        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">lock</span>
+                        <input type="password" name="password" id="signup_password"
+                               class="block w-full pl-10 pr-12 py-3 bg-slate-900 border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                               placeholder="Password (min 8 chars)" required minlength="8" autocomplete="new-password">
+                        <button type="button" onclick="togglePasswordVisibility('signup_password', this)"
+                                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors focus:outline-none" aria-label="Toggle password visibility">
+                            <span class="material-symbols-outlined">visibility_off</span>
+                        </button>
                     </div>
                 </div>
+
+                <!-- Confirm Password -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-medium text-slate-400 ml-1" for="signup_confirm">Confirm Password</label>
+                    <div class="relative group">
+                        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">lock</span>
+                        <input type="password" name="confirm_password" id="signup_confirm"
+                               class="block w-full pl-10 pr-12 py-3 bg-slate-900 border border-slate-700 text-white rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                               placeholder="Confirm password" required autocomplete="new-password">
+                        <button type="button" onclick="togglePasswordVisibility('signup_confirm', this)"
+                                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors focus:outline-none" aria-label="Toggle password visibility">
+                            <span class="material-symbols-outlined">visibility_off</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Invite Code -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-medium text-slate-400 ml-1" for="invite_code">Invite Code</label>
+                    <div class="relative group">
+                        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">confirmation_number</span>
+                        <input type="text" name="invite_code" id="invite_code"
+                               class="block w-full pl-10 pr-4 py-3 bg-slate-900 border text-white rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all {{ 'border-accent-green' if invite else 'border-slate-700' }}"
+                               placeholder="Invite code" required value="{{ invite or '' }}">
+                    </div>
+                    {% if invite %}
+                    <p class="text-xs text-accent-green ml-1">Invite code pre-filled from link.</p>
+                    {% endif %}
+                </div>
+
+                <button type="submit"
+                        class="w-full bg-accent-green hover:bg-green-500 text-white font-semibold py-4 rounded-xl shadow-lg shadow-green-500/20 active:scale-95 transition-all mt-2">
+                    Create Account
+                </button>
+            </form>
+
+            <div class="mt-8 text-center">
+                <p class="text-sm text-slate-400">
+                    Already have an account?
+                    <a href="/login" class="text-primary font-medium hover:underline underline-offset-4">Login</a>
+                </p>
             </div>
         </div>
+
+        <!-- Footer -->
+        <div class="mt-10 text-center">
+            <div class="inline-flex items-center gap-2 text-slate-500">
+                <span class="material-symbols-outlined text-lg">flight_takeoff</span>
+                <span class="text-xs font-medium uppercase tracking-widest">Global Flight Search</span>
+            </div>
+        </div>
+
     </div>
 </div>
 <script>

@@ -1,38 +1,104 @@
 <!-- webapp/templates/base.html -->
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lesgoski</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>lesgoski</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
+    {% if tailwind_dev %}
+    <!-- DEV: Tailwind CDN (run `npm run watch:css` instead to use the link below) -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#3b82f6",
+                        "background-light": "#f8fafc",
+                        "background-dark": "#0f172a",
+                        "card-dark": "#1e293b",
+                        "accent-green": "#22c55e"
+                    },
+                    fontFamily: {
+                        sans: ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "12px",
+                    },
+                },
+            },
+        };
+    </script>
+    {% else %}
+    <!-- PRODUCTION: pre-built CSS from Docker (see Dockerfile stage 0) -->
+    <link rel="stylesheet" href="/static/tailwind.css">
+    {% endif %}
     <link href="https://cdn.jsdelivr.net/npm/nouislider@15/dist/nouislider.min.css" rel="stylesheet">
     <link href="/static/style.css" rel="stylesheet">
 </head>
-<body>
+<body class="bg-background-dark text-slate-100 min-h-screen{% if user %} pb-24 md:pb-0{% endif %}">
 
-    {% if user %}
-    <nav class="navbar navbar-dark" style="background-color: #161b22; border-bottom: 1px solid #30363d;">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="/">lesgoski</a>
-            <div class="d-flex align-items-center gap-3">
-                <a href="/settings" class="profile-switcher">
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                    </svg>
-                    <span class="username-text">{{ user.username }}</span>
-                </a>
-                <form action="/logout" method="POST" class="d-inline">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary">Logout</button>
-                </form>
-            </div>
+{% if user %}
+    {# Determine active tab from URL path #}
+    {% set p = request.url.path %}
+    {% set active = 'deals' if (p == '/' or p.startswith('/deal/')) else
+                    'goskis' if (p == '/goskis' or p.startswith('/profile/')) else
+                    'alerts' if p == '/alerts' else
+                    'settings' if p == '/settings' else '' %}
+
+    <!-- Desktop top nav (md and above) -->
+    <nav class="hidden md:flex sticky top-0 z-50 bg-background-dark/80 ios-blur border-b border-slate-800 px-6 py-3 items-center justify-between">
+        <a href="/" class="text-xl font-bold tracking-tight text-white">lesgoski</a>
+        <div class="flex items-center gap-6">
+            <a href="/" class="flex items-center gap-1.5 text-sm font-medium transition-colors {{ 'text-primary' if active == 'deals' else 'text-slate-400 hover:text-white' }}">
+                <span class="material-symbols-outlined text-xl {{ 'nav-active' if active == 'deals' }}">local_fire_department</span>
+                Deals
+            </a>
+            <a href="/goskis" class="flex items-center gap-1.5 text-sm font-medium transition-colors {{ 'text-primary' if active == 'goskis' else 'text-slate-400 hover:text-white' }}">
+                <span class="material-symbols-outlined text-xl {{ 'nav-active' if active == 'goskis' }}">group</span>
+                Goskis &amp; Broskis
+            </a>
+            <a href="/alerts" class="flex items-center gap-1.5 text-sm font-medium transition-colors {{ 'text-primary' if active == 'alerts' else 'text-slate-400 hover:text-white' }}">
+                <span class="material-symbols-outlined text-xl {{ 'nav-active' if active == 'alerts' }}">notifications</span>
+                Alerts
+            </a>
+            <a href="/settings" class="flex items-center gap-1.5 text-sm font-medium transition-colors {{ 'text-primary' if active == 'settings' else 'text-slate-400 hover:text-white' }}">
+                <span class="material-symbols-outlined text-xl {{ 'nav-active' if active == 'settings' }}">settings</span>
+                Settings
+            </a>
         </div>
     </nav>
-    {% endif %}
+
+    <!-- Mobile bottom tab bar -->
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-card-dark/90 ios-blur border-t border-slate-800 px-3 pt-3 pb-8 flex justify-between items-center z-50">
+        <a href="/" class="flex-1 flex flex-col items-center gap-1 transition-colors {{ 'text-primary' if active == 'deals' else 'text-slate-400' }}">
+            <span class="material-symbols-outlined text-2xl {{ 'nav-active' if active == 'deals' }}">local_fire_department</span>
+            <span class="text-[10px] font-medium">Deals</span>
+        </a>
+        <a href="/goskis" class="flex-1 flex flex-col items-center gap-1 transition-colors {{ 'text-primary' if active == 'goskis' else 'text-slate-400' }}">
+            <span class="material-symbols-outlined text-2xl {{ 'nav-active' if active == 'goskis' }}">group</span>
+            <span class="text-[10px] font-medium whitespace-nowrap">Goskis &amp; Broskis</span>
+        </a>
+        <a href="/alerts" class="flex-1 flex flex-col items-center gap-1 transition-colors {{ 'text-primary' if active == 'alerts' else 'text-slate-400' }}">
+            <span class="material-symbols-outlined text-2xl {{ 'nav-active' if active == 'alerts' }}">notifications</span>
+            <span class="text-[10px] font-medium">Alerts</span>
+        </a>
+        <a href="/settings" class="flex-1 flex flex-col items-center gap-1 transition-colors {{ 'text-primary' if active == 'settings' else 'text-slate-400' }}">
+            <span class="material-symbols-outlined text-2xl {{ 'nav-active' if active == 'settings' }}">settings</span>
+            <span class="text-[10px] font-medium">Settings</span>
+        </a>
+    </nav>
+    <!-- iOS home indicator -->
+    <div class="md:hidden fixed bottom-0 left-0 right-0 h-1.5 flex justify-center pb-1.5 z-[60] pointer-events-none">
+        <div class="w-32 h-1 bg-slate-400/30 rounded-full"></div>
+    </div>
+{% endif %}
 
     {% block content %}{% endblock %}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/nouislider@15/dist/nouislider.min.js"></script>
     <script src="/static/scripts.js"></script>
 </body>

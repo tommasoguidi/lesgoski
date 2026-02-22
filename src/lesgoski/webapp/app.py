@@ -46,7 +46,23 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=str(_WEBAPP_DIR / "static")), name="static")
 
 templates = Jinja2Templates(directory=str(_WEBAPP_DIR / "templates"))
-templates.env.globals.update(booking_links=get_booking_links)
+# Use CDN in dev (no built tailwind.css), pre-built CSS in production (Docker)
+_tailwind_css = _WEBAPP_DIR / "static" / "tailwind.css"
+templates.env.globals.update(
+    booking_links=get_booking_links,
+    tailwind_dev=not _tailwind_css.exists(),
+)
+
+# Deterministic avatar colour for broski initials
+_BROSKI_COLOURS = [
+    "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b",
+    "#10b981", "#ef4444", "#06b6d4", "#84cc16",
+]
+
+def _broski_color(username: str) -> str:
+    return _BROSKI_COLOURS[hash(username) % len(_BROSKI_COLOURS)]
+
+templates.env.filters["broski_color"] = _broski_color
 
 
 @app.exception_handler(RedirectToLogin)
@@ -195,22 +211,6 @@ def settings_page(
     success: str = None,
     error: str = None,
 ):
-    own_profiles = (
-        db.query(SearchProfile)
-        .filter(SearchProfile.user_id == user.id)
-        .all()
-    )
-    shared_profiles = (
-        db.query(SearchProfile)
-        .filter(
-            SearchProfile.is_active == True,
-            SearchProfile.viewers.any(User.id == user.id),
-        )
-        .all()
-    )
-    broskis = get_broskis(db, user)
-    pending_requests = get_pending_broski_requests(db, user)
-
     # Admin-only: load invite tokens (active + used within last 7 days)
     invite_tokens = []
     if user.is_admin:
@@ -233,12 +233,128 @@ def settings_page(
         "user": user,
         "success": success,
         "error": error,
+        "invite_tokens": invite_tokens,
+        "webapp_url": WEBAPP_URL,
+    })
+
+
+@app.get("/goskis", response_class=HTMLResponse)
+def goskis_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+    success: str = None,
+    error: str = None,
+):
+    own_profiles = (
+        db.query(SearchProfile)
+        .filter(SearchProfile.user_id == user.id)
+        .all()
+    )
+    shared_profiles = (
+        db.query(SearchProfile)
+        .filter(
+            SearchProfile.is_active == True,
+            SearchProfile.viewers.any(User.id == user.id),
+        )
+        .all()
+    )
+    broskis = get_broskis(db, user)
+    pending_requests = get_pending_broski_requests(db, user)
+
+    return templates.TemplateResponse("goskis.html", {
+        "request": request,
+        "user": user,
+        "success": success,
+        "error": error,
         "own_profiles": own_profiles,
         "shared_profiles": shared_profiles,
         "broskis": broskis,
         "pending_requests": pending_requests,
-        "invite_tokens": invite_tokens,
-        "webapp_url": WEBAPP_URL,
+    })
+
+
+@app.get("/alerts", response_class=HTMLResponse)
+def alerts_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    # All accessible profiles (own + shared)
+    all_profiles = (
+        db.query(SearchProfile)
+        .filter(
+            SearchProfile.is_active == True,
+            (SearchProfile.user_id == user.id) | SearchProfile.viewers.any(User.id == user.id),
+        )
+        .all()
+    )
+
+    alert_items = []
+    for profile in all_profiles:
+        notify_dests = profile.notify_destinations
+        if not notify_dests:
+            continue
+
+        # Fetch deals for this profile
+        deals = db.query(Deal).options(
+            joinedload(Deal.outbound),
+            joinedload(Deal.inbound),
+            joinedload(Deal.profile),
+        ).filter(Deal.profile_id == profile.id).all()
+        deals = [d for d in deals if d.outbound and d.inbound]
+
+        # Group deals by destination (metro-area aware) + build name lookup
+        grouped = defaultdict(list)
+        dest_full_names: dict[str, str] = {}
+        for deal in deals:
+            out_dest = deal.outbound.destination
+            in_origin = deal.inbound.origin if deal.inbound else out_dest
+            area_codes = get_nearby_set(out_dest) | get_nearby_set(in_origin)
+            for code in area_codes:
+                grouped[code].append(deal)
+            # Map each IATA code to its full name from flight data
+            for code, full_name in [
+                (out_dest, deal.outbound.destination_full or out_dest),
+                (in_origin, (deal.inbound.origin_full if deal.inbound else None) or in_origin),
+            ]:
+                if code not in dest_full_names:
+                    dest_full_names[code] = full_name
+
+        for dest_code in notify_dests:
+            dest_deals = grouped.get(dest_code, [])
+            if not dest_deals:
+                continue
+            # Deduplicate
+            seen = set()
+            unique = []
+            for d in dest_deals:
+                if d.id not in seen:
+                    seen.add(d.id)
+                    unique.append(d)
+            unique.sort(key=lambda x: x.total_price_pp)
+            best = unique[0]
+
+            full_name = dest_full_names.get(dest_code, best.outbound.destination_full or dest_code)
+            country_code = get_country_code(full_name)
+
+            alert_items.append({
+                "destination_code": dest_code,
+                "destination_name": full_name.split(',')[0].strip(),
+                "country_code": country_code,
+                "country_flag": f"https://flagsapi.com/{country_code.upper()}/shiny/64.png",
+                "best_deal": best,
+                "profile": profile,
+                "is_shared": profile.user_id != user.id,
+                "other_count": len(unique) - 1,
+            })
+
+    alert_items.sort(key=lambda x: x["best_deal"].total_price_pp)
+
+    return templates.TemplateResponse("alerts.html", {
+        "request": request,
+        "user": user,
+        "alert_items": alert_items,
     })
 
 
@@ -449,6 +565,83 @@ def view_deals(
     })
 
 
+# --- DEAL DETAIL ROUTE ---
+
+@app.get("/deal/{destination_code}", response_class=HTMLResponse)
+def deal_detail(
+    request: Request,
+    destination_code: str,
+    profile_id: int = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    # Resolve profile
+    current_profile = None
+    if profile_id:
+        current_profile = db.get(SearchProfile, profile_id)
+        if current_profile and not _user_can_access(current_profile, user):
+            current_profile = None
+    if not current_profile and user.favourite_profile_id:
+        fav = db.get(SearchProfile, user.favourite_profile_id)
+        if fav and fav.is_active and _user_can_access(fav, user):
+            current_profile = fav
+    if not current_profile:
+        all_p = (
+            db.query(SearchProfile)
+            .filter(
+                SearchProfile.is_active == True,
+                (SearchProfile.user_id == user.id) | SearchProfile.viewers.any(User.id == user.id),
+            )
+            .first()
+        )
+        current_profile = all_p
+    if not current_profile:
+        return RedirectResponse("/profile/new", status_code=303)
+
+    deals = (
+        db.query(Deal)
+        .options(joinedload(Deal.outbound), joinedload(Deal.inbound), joinedload(Deal.profile))
+        .filter(Deal.profile_id == current_profile.id)
+        .all()
+    )
+    deals = [d for d in deals if d.outbound and d.inbound]
+
+    # Filter to destination, group by metro area
+    from lesgoski.services.airports import get_nearby_set
+    matching = []
+    for d in deals:
+        area = get_nearby_set(d.outbound.destination) | get_nearby_set(d.inbound.origin)
+        if destination_code in area:
+            matching.append(d)
+    matching.sort(key=lambda x: x.total_price_pp)
+
+    if not matching:
+        return RedirectResponse(f"/?profile_id={current_profile.id}", status_code=303)
+
+    best_deal = matching[0]
+    other_deals = matching[1:]
+
+    full_name = best_deal.outbound.destination_full or destination_code
+    destination_name = full_name.split(',')[0].strip()
+    country_code = get_country_code(full_name)
+    country_flag = f"https://flagsapi.com/{country_code.upper()}/shiny/64.png"
+    is_over = best_deal.total_price_pp > best_deal.profile.max_price
+
+    return templates.TemplateResponse("deal_detail.html", {
+        "request": request,
+        "user": user,
+        "destination_code": destination_code,
+        "destination_name": destination_name,
+        "country_code": country_code,
+        "country_flag": country_flag,
+        "best_deal": best_deal,
+        "other_deals": other_deals,
+        "current_profile": current_profile,
+        "notify_destinations": current_profile.notify_destinations if current_profile else [],
+        "is_over": is_over,
+    })
+
+
 # --- PROFILE ROUTES ---
 
 @app.get("/profile/new", response_class=HTMLResponse)
@@ -563,7 +756,7 @@ def toggle_profile(
         raise HTTPException(status_code=404)
     profile.is_active = not profile.is_active
     db.commit()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/goskis", status_code=303)
 
 
 # --- SHARING ROUTES ---
@@ -577,18 +770,18 @@ def share_profile(
 ):
     profile = db.get(SearchProfile, pid)
     if not profile or profile.user_id != user.id:
-        return RedirectResponse("/settings?error=Profile+not+found", status_code=303)
+        return RedirectResponse("/goskis?error=Profile+not+found", status_code=303)
     target = db.get(User, share_user_id)
     if not target or target.id == user.id:
-        return RedirectResponse("/settings?error=Invalid+user", status_code=303)
+        return RedirectResponse("/goskis?error=Invalid+user", status_code=303)
     # Verify they are broskis
     broskis = get_broskis(db, user)
     if target not in broskis:
-        return RedirectResponse("/settings?error=You+can+only+share+with+broskis", status_code=303)
+        return RedirectResponse("/goskis?error=You+can+only+share+with+broskis", status_code=303)
     if target not in profile.viewers:
         profile.viewers.append(target)
         db.commit()
-    return RedirectResponse("/settings?success=Profile+shared", status_code=303)
+    return RedirectResponse("/goskis?success=Profile+shared", status_code=303)
 
 
 @app.post("/profile/{pid}/unshare")
@@ -605,7 +798,7 @@ def unshare_profile(
     if target and target in profile.viewers:
         profile.viewers.remove(target)
         db.commit()
-    return RedirectResponse("/settings?success=Viewer+removed", status_code=303)
+    return RedirectResponse("/goskis?success=Viewer+removed", status_code=303)
 
 
 # --- BROSKI ROUTES ---
@@ -618,7 +811,7 @@ def send_broski_request(
 ):
     target = db.query(User).filter(User.username == broski_username).first()
     if not target or target.id == user.id:
-        return RedirectResponse("/settings?error=User+not+found", status_code=303)
+        return RedirectResponse("/goskis?error=User+not+found", status_code=303)
 
     # Check if already broskis or pending
     from sqlalchemy import or_, and_
@@ -630,12 +823,12 @@ def send_broski_request(
     ).first()
     if existing:
         msg = "Already+broskis" if existing.status == "accepted" else "Request+already+pending"
-        return RedirectResponse(f"/settings?error={msg}", status_code=303)
+        return RedirectResponse(f"/goskis?error={msg}", status_code=303)
 
     req = BroskiRequest(from_user_id=user.id, to_user_id=target.id)
     db.add(req)
     db.commit()
-    return RedirectResponse("/settings?success=Broski+request+sent", status_code=303)
+    return RedirectResponse("/goskis?success=Broski+request+sent", status_code=303)
 
 
 @app.post("/broski/accept/{request_id}")
@@ -649,7 +842,7 @@ def accept_broski_request(
         raise HTTPException(status_code=404)
     req.status = "accepted"
     db.commit()
-    return RedirectResponse("/settings?success=Broski+accepted", status_code=303)
+    return RedirectResponse("/goskis?success=Broski+accepted", status_code=303)
 
 
 @app.post("/broski/decline/{request_id}")
@@ -663,7 +856,7 @@ def decline_broski_request(
         raise HTTPException(status_code=404)
     db.delete(req)
     db.commit()
-    return RedirectResponse("/settings?success=Request+declined", status_code=303)
+    return RedirectResponse("/goskis?success=Request+declined", status_code=303)
 
 
 @app.post("/broski/remove/{broski_id}")
@@ -697,7 +890,7 @@ def remove_broski(
 
     db.delete(req)
     db.commit()
-    return RedirectResponse("/settings?success=Broski+removed", status_code=303)
+    return RedirectResponse("/goskis?success=Broski+removed", status_code=303)
 
 
 # --- FAVOURITE ROUTE ---
@@ -717,7 +910,7 @@ def set_favourite_profile(
     else:
         user.favourite_profile_id = profile_id
     db.commit()
-    return RedirectResponse("/settings?success=Default+profile+updated", status_code=303)
+    return RedirectResponse("/goskis?success=Default+profile+updated", status_code=303)
 
 
 # --- API ROUTES ---

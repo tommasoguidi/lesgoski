@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+
+{% block content %}
+<header class="sticky top-0 z-50 bg-background-dark/80 ios-blur border-b border-slate-800 px-4 py-4 md:hidden">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold tracking-tight">Goskis &amp; Broskis</h1>
+    </div>
+</header>
+
+<main class="p-4 space-y-8 max-w-2xl mx-auto">
+
+    {% if success %}
+    <div class="px-4 py-3 bg-accent-green/10 border border-accent-green/30 rounded-xl text-accent-green text-sm">
+        {{ success }}
+    </div>
+    {% endif %}
+    {% if error %}
+    <div class="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    <!-- My Goskis -->
+    <section>
+        <div class="flex items-center justify-between mb-4 px-1">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary">travel_explore</span>
+                <h2 class="text-lg font-bold">My Goskis</h2>
+            </div>
+            <a href="/profile/new" class="text-primary text-sm font-semibold flex items-center gap-1">
+                <span class="material-symbols-outlined text-sm">add</span> New
+            </a>
+        </div>
+
+        <div class="space-y-3">
+            {% if own_profiles %}
+            {% for p in own_profiles %}
+            <div class="bg-card-dark rounded-2xl p-4 border border-slate-800 shadow-lg {{ 'opacity-50' if not p.is_active }}">
+                <div class="flex items-center justify-between">
+                    <div class="flex flex-col gap-1 min-w-0 mr-3">
+                        <div class="flex items-center gap-2">
+                            <a href="/profile/{{ p.id }}" class="text-base font-semibold hover:text-primary transition-colors truncate">{{ p.name }}</a>
+                            {% if not p.is_active %}
+                            <span class="shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">Paused</span>
+                            {% endif %}
+                        </div>
+                        <div class="flex items-center gap-2 text-xs text-slate-400">
+                            {% if p.origins %}
+                            <span>{{ p.origins | join(', ') }}</span>
+                            {% endif %}
+                            {% if p.max_price %}
+                            <span class="w-1 h-1 bg-slate-600 rounded-full"></span>
+                            <span>Max €{{ p.max_price }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 shrink-0">
+                        <!-- Favourite star -->
+                        <form action="/settings/favourite" method="POST" class="inline">
+                            <input type="hidden" name="profile_id" value="{{ p.id }}">
+                            <button type="submit" class="text-slate-500 hover:text-yellow-400 transition-colors" title="{{ 'Remove as default' if user.favourite_profile_id == p.id else 'Set as default' }}">
+                                <span class="material-symbols-outlined text-xl {{ 'text-yellow-400 nav-active' if user.favourite_profile_id == p.id }}">star</span>
+                            </button>
+                        </form>
+                        <!-- Share with broski dropdown -->
+                        {% if broskis %}
+                        <div class="relative" x-data="{ open: false }">
+                            <button type="button" onclick="toggleShareDropdown(this)" class="text-slate-500 hover:text-primary transition-colors" title="Share with broski">
+                                <span class="material-symbols-outlined text-xl">person_add</span>
+                            </button>
+                            <div class="share-dropdown hidden absolute right-0 mt-2 w-48 bg-card-dark border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                                {% set ns = namespace(has_unsent=false) %}
+                                {% for b in broskis %}
+                                {% if b not in p.viewers %}
+                                {% set ns.has_unsent = true %}
+                                <form action="/profile/{{ p.id }}/share" method="POST">
+                                    <input type="hidden" name="share_user_id" value="{{ b.id }}">
+                                    <button type="submit" class="w-full text-left px-4 py-3 text-sm hover:bg-slate-700 transition-colors">
+                                        {{ b.username }}
+                                    </button>
+                                </form>
+                                {% endif %}
+                                {% endfor %}
+                                {% if not ns.has_unsent %}
+                                <div class="px-4 py-3 text-sm text-slate-500">All broskis have access</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        <!-- Edit button -->
+                        <a href="/profile/{{ p.id }}" class="text-slate-400 hover:text-white transition-colors">
+                            <span class="material-symbols-outlined">edit</span>
+                        </a>
+                        <!-- Toggle active -->
+                        <form action="/profile/{{ p.id }}/toggle" method="POST" class="inline">
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" class="sr-only toggle-checkbox"
+                                       {{ 'checked' if p.is_active else '' }}
+                                       onchange="this.form.submit()">
+                                <div class="toggle-label w-11 h-6 bg-slate-700 rounded-full transition-colors duration-200 relative">
+                                    <div class="toggle-dot absolute top-[2px] left-[2px] bg-white w-5 h-5 rounded-full transition-transform duration-200"></div>
+                                </div>
+                            </label>
+                        </form>
+                    </div>
+                </div>
+                <!-- Viewers -->
+                {% if p.viewers %}
+                <div class="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-700">
+                    {% for v in p.viewers %}
+                    <form action="/profile/{{ p.id }}/unshare" method="POST" class="inline">
+                        <input type="hidden" name="unshare_user_id" value="{{ v.id }}">
+                        <button type="submit" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-red-900/30 text-slate-300 hover:text-red-400 text-xs rounded-full border border-slate-700 hover:border-red-900/50 transition-colors">
+                            <span class="material-symbols-outlined text-[14px]">person</span>
+                            {{ v.username }}
+                            <span class="material-symbols-outlined text-[12px]">close</span>
+                        </button>
+                    </form>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            <!-- Shared With Me -->
+            {% if shared_profiles %}
+            <div class="mt-4">
+                <p class="text-xs font-bold uppercase tracking-widest text-slate-500 px-1 mb-3">Shared with me</p>
+                {% for p in shared_profiles %}
+                <div class="bg-card-dark rounded-2xl p-4 border border-slate-800 shadow-lg mb-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center gap-2">
+                                <span class="text-base font-semibold">{{ p.name }}</span>
+                                <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">by @{{ p.user.username }}</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs text-slate-400">
+                                {% if p.origins %}
+                                <span>{{ p.origins | join(', ') }}</span>
+                                {% endif %}
+                                {% if p.max_price %}
+                                <span class="w-1 h-1 bg-slate-600 rounded-full"></span>
+                                <span>Max €{{ p.max_price }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <!-- Favourite star -->
+                        <form action="/settings/favourite" method="POST" class="inline">
+                            <input type="hidden" name="profile_id" value="{{ p.id }}">
+                            <button type="submit" class="text-slate-500 hover:text-yellow-400 transition-colors" title="{{ 'Remove as default' if user.favourite_profile_id == p.id else 'Set as default' }}">
+                                <span class="material-symbols-outlined text-xl {{ 'text-yellow-400 nav-active' if user.favourite_profile_id == p.id }}">star</span>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Empty State -->
+            {% if not own_profiles and not shared_profiles %}
+            <div class="bg-card-dark rounded-2xl p-8 border border-slate-800 text-center">
+                <span class="material-symbols-outlined text-5xl text-slate-600 mb-4 block">travel_explore</span>
+                <p class="text-slate-400 text-sm mb-4">No goskis yet. Create your first search profile!</p>
+                <a href="/profile/new" class="inline-flex items-center gap-2 bg-primary text-white font-semibold px-4 py-2 rounded-xl text-sm">
+                    <span class="material-symbols-outlined text-sm">add</span> New Goski
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- My Broskis -->
+    <section>
+        <div class="flex items-center justify-between mb-4 px-1">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary">group</span>
+                <h2 class="text-lg font-bold">My Broskis</h2>
+            </div>
+            <button type="button" id="toggle-add-broski-btn"
+                    class="bg-primary/10 text-primary text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 hover:bg-primary/20 transition-colors">
+                <span class="material-symbols-outlined text-sm">person_add</span> Add Friend
+            </button>
+        </div>
+
+        <!-- Add Broski Form (hidden by default) -->
+        <div id="add-broski-form" class="hidden mb-4 bg-card-dark rounded-2xl p-4 border border-slate-800">
+            <form action="/broski/request" method="POST" class="flex gap-2">
+                <div class="flex-1" style="position: relative;">
+                    <input type="text" name="broski_username" id="broski-username"
+                           class="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all placeholder:text-slate-500"
+                           placeholder="Enter username..." required minlength="3" autocomplete="off">
+                </div>
+                <button type="submit"
+                        class="bg-primary hover:bg-blue-600 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors">
+                    Send
+                </button>
+                <button type="button" id="cancel-add-broski-btn"
+                        class="p-2.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors">
+                    <span class="material-symbols-outlined text-xl">close</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Incoming Requests -->
+        {% if pending_requests %}
+        <div class="mb-4 space-y-2">
+            <p class="text-xs font-bold uppercase tracking-widest text-slate-500 px-1 mb-3">Incoming Requests</p>
+            {% for req in pending_requests %}
+            <div class="bg-card-dark rounded-2xl p-4 border border-primary/30 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0"
+                         style="background-color: {{ req.from_user.username | broski_color }};">
+                        {{ req.from_user.username[0] | upper }}
+                    </div>
+                    <span class="font-semibold">{{ req.from_user.username }}</span>
+                </div>
+                <div class="flex gap-2">
+                    <form action="/broski/accept/{{ req.id }}" method="POST" class="inline">
+                        <button type="submit" class="bg-accent-green hover:bg-green-500 text-white font-semibold px-3 py-1.5 rounded-xl text-xs transition-colors">
+                            Accept
+                        </button>
+                    </form>
+                    <form action="/broski/decline/{{ req.id }}" method="POST" class="inline">
+                        <button type="submit" class="bg-slate-700 hover:bg-red-900/50 text-slate-300 hover:text-red-400 font-semibold px-3 py-1.5 rounded-xl text-xs transition-colors border border-slate-600 hover:border-red-900/50">
+                            Decline
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Broski List -->
+        {% if broskis %}
+        <div class="bg-card-dark rounded-2xl border border-slate-800 shadow-lg divide-y divide-slate-800">
+            {% for b in broskis %}
+            <div class="flex items-center justify-between p-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg shrink-0"
+                         style="background-color: {{ b.username | broski_color }};">
+                        {{ b.username[0] | upper }}
+                    </div>
+                    <div>
+                        <p class="font-semibold">{{ b.username }}</p>
+                        <p class="text-xs text-slate-500">@{{ b.username }}</p>
+                    </div>
+                </div>
+                <form action="/broski/remove/{{ b.id }}" method="POST" class="inline"
+                      onsubmit="return confirm('Remove {{ b.username }} as broski? This will also unshare all profiles.')">
+                    <button type="submit" class="text-slate-500 hover:text-red-400 transition-colors p-1">
+                        <span class="material-symbols-outlined text-xl">person_remove</span>
+                    </button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% elif not pending_requests %}
+        <!-- Empty State (no broskis, no pending) -->
+        <div class="bg-card-dark rounded-2xl p-8 border border-slate-800 text-center" id="empty-broskis-state">
+            <span class="material-symbols-outlined text-5xl text-slate-600 mb-4 block">group</span>
+            <p class="text-slate-400 text-sm">No broskis yet. Add friends to share profiles!</p>
+        </div>
+        {% endif %}
+    </section>
+
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // Share dropdown toggle
+    document.addEventListener('click', (e) => {
+        // Close all share dropdowns if click outside
+        if (!e.target.closest('[onclick="toggleShareDropdown(this)"]') && !e.target.closest('.share-dropdown')) {
+            document.querySelectorAll('.share-dropdown').forEach(d => d.classList.add('hidden'));
+        }
+    });
+
+    // Add broski form toggle
+    const toggleBtn = document.getElementById('toggle-add-broski-btn');
+    const cancelBtn = document.getElementById('cancel-add-broski-btn');
+    const form = document.getElementById('add-broski-form');
+    const emptyState = document.getElementById('empty-broskis-state');
+    let broskiAutocompleteInitialized = false;
+
+    if (toggleBtn && form) {
+        toggleBtn.addEventListener('click', () => {
+            form.classList.remove('hidden');
+            toggleBtn.classList.add('hidden');
+            if (emptyState) emptyState.classList.add('hidden');
+
+            if (!broskiAutocompleteInitialized) {
+                initBroskiAutocomplete('broski-username');
+                broskiAutocompleteInitialized = true;
+            }
+            document.getElementById('broski-username').focus();
+        });
+    }
+
+    if (cancelBtn && form) {
+        cancelBtn.addEventListener('click', () => {
+            form.classList.add('hidden');
+            if (toggleBtn) toggleBtn.classList.remove('hidden');
+            if (emptyState) emptyState.classList.remove('hidden');
+            document.getElementById('broski-username').value = '';
+        });
+    }
+});
+
+function toggleShareDropdown(btn) {
+    const dropdown = btn.nextElementSibling;
+    const isHidden = dropdown.classList.contains('hidden');
+    // Close all dropdowns first
+    document.querySelectorAll('.share-dropdown').forEach(d => d.classList.add('hidden'));
+    // Toggle this one
+    if (isHidden) dropdown.classList.remove('hidden');
+}
+</script>
+{% endblock %}

@@ -4,10 +4,15 @@
 // PASSWORD VISIBILITY TOGGLE
 // ==========================================
 
-function togglePasswordVisibility(inputId) {
+function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);
     if (!input) return;
-    input.type = input.type === 'password' ? 'text' : 'password';
+    const isVisible = input.type === 'text';
+    input.type = isVisible ? 'password' : 'text';
+    if (btn) {
+        const icon = btn.querySelector('.material-symbols-outlined');
+        if (icon) icon.textContent = isVisible ? 'visibility_off' : 'visibility';
+    }
 }
 
 // ==========================================
@@ -83,11 +88,9 @@ function initBroskiAutocomplete(inputId) {
 
 function toggleFilters() {
     const sheet = document.getElementById('filterSheet');
-    const trigger = document.getElementById('filterTrigger');
     const backdrop = document.getElementById('sheetBackdrop');
 
     sheet.classList.toggle('active');
-    trigger.classList.toggle('hidden');
     backdrop.classList.toggle('active');
 }
 
@@ -124,8 +127,11 @@ function applyFilters() {
         }
     });
 
+    // Update both the floating pill counter and the sheet counter
     const counter = document.getElementById('visibleCount');
     if (counter) counter.innerText = visible;
+    const counterSheet = document.getElementById('visibleCountSheet');
+    if (counterSheet) counterSheet.innerText = visible;
 
     const noDealsMsg = document.getElementById('noDealsMsg');
     if (noDealsMsg) noDealsMsg.style.display = (visible === 0) ? 'block' : 'none';
@@ -152,6 +158,24 @@ function triggerUpdate(btn, profileId) {
         });
 }
 
+// ==========================================
+// DEALS PAGE — Profile Dropdown
+// ==========================================
+
+function toggleProfileDropdown() {
+    const menu = document.getElementById('profileDropdownMenu');
+    if (!menu) return;
+    menu.classList.toggle('hidden');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('profileDropdownWrap');
+    if (wrap && !wrap.contains(e.target)) {
+        const menu = document.getElementById('profileDropdownMenu');
+        if (menu) menu.classList.add('hidden');
+    }
+});
 
 // ==========================================
 // DEALS PAGE — Airport Autocomplete Filter
@@ -358,26 +382,28 @@ function initStrategyEditor() {
         try { existing = JSON.parse(dataStr); } catch (e) { /* use defaults */ }
     }
 
-    // Build outbound section - no days selected by default
+    // Build outbound section
     buildDaySection(editor, 'out', 'Outbound Departure', existing ? existing.out_days : {});
 
-    // Build inbound section - no days selected by default
+    // Build inbound section
     buildDaySection(editor, 'in', 'Return Departure', existing ? existing.in_days : {});
 
     // Build stay duration section
     const staySection = document.createElement('div');
-    staySection.className = 'strategy-section';
+    staySection.className = 'strategy-section space-y-3 mb-5';
     staySection.innerHTML = `
-        <label class="form-label text-white fw-bold">Stay Duration</label>
-        <div class="d-flex align-items-center gap-3">
-            <div class="d-flex align-items-center gap-2">
-                <span class="text-muted small">Min nights</span>
-                <input type="number" id="min-nights" class="form-control form-control-sm strategy-number-input"
+        <label class="block text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Stay Duration</label>
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400 text-xs">Min nights</span>
+                <input type="number" id="min-nights"
+                       class="bg-card-dark border border-slate-700 rounded-xl px-3 py-1.5 text-white text-sm w-16 outline-none focus:ring-2 focus:ring-primary strategy-number-input"
                        min="0" max="30" value="${existing ? existing.min_nights : 1}">
             </div>
-            <div class="d-flex align-items-center gap-2">
-                <span class="text-muted small">Max nights</span>
-                <input type="number" id="max-nights" class="form-control form-control-sm strategy-number-input"
+            <div class="flex items-center gap-2">
+                <span class="text-slate-400 text-xs">Max nights</span>
+                <input type="number" id="max-nights"
+                       class="bg-card-dark border border-slate-700 rounded-xl px-3 py-1.5 text-white text-sm w-16 outline-none focus:ring-2 focus:ring-primary strategy-number-input"
                        min="0" max="30" value="${existing ? existing.max_nights : 2}">
             </div>
         </div>
@@ -394,21 +420,25 @@ function initStrategyEditor() {
 
 function buildDaySection(container, prefix, label, activeDays) {
     const section = document.createElement('div');
-    section.className = 'strategy-section mb-3';
+    section.className = 'strategy-section space-y-3 mb-5';
 
-    // Label
-    const labelEl = document.createElement('label');
-    labelEl.className = 'form-label text-white fw-bold';
-    labelEl.textContent = label;
-    section.appendChild(labelEl);
+    // Section header
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'flex justify-between items-center ml-1';
+    headerDiv.innerHTML = `
+        <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${label}</label>
+        <span class="text-primary text-[11px] font-semibold">Select Days</span>
+    `;
+    section.appendChild(headerDiv);
 
     // Day toggle buttons
     const btnGroup = document.createElement('div');
-    btnGroup.className = 'd-flex flex-wrap gap-2 mb-2';
+    btnGroup.className = 'flex justify-between gap-1';
 
     // Time rows container
     const timeRows = document.createElement('div');
     timeRows.id = `${prefix}-time-rows`;
+    timeRows.className = 'bg-card-dark rounded-xl border border-slate-700/50 overflow-hidden divide-y divide-slate-700/30';
 
     for (let i = 0; i < 7; i++) {
         const isActive = activeDays && (i.toString() in activeDays || i in activeDays);
@@ -417,18 +447,23 @@ function buildDaySection(container, prefix, label, activeDays) {
         // Day toggle button
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-outline-secondary'} strategy-day-btn`;
-        btn.textContent = DAY_NAMES[i];
+        const dayLetter = ['M', 'T', 'W', 'T', 'F', 'S', 'S'][i];
+        btn.textContent = dayLetter;
         btn.dataset.day = i;
         btn.dataset.prefix = prefix;
         btn.dataset.active = isActive ? '1' : '0';
+        btn.className = isActive
+            ? 'w-9 h-9 flex items-center justify-center rounded-full bg-primary text-white text-[11px] font-bold ring-2 ring-primary ring-offset-2 ring-offset-background-dark strategy-day-btn'
+            : 'w-9 h-9 flex items-center justify-center rounded-full bg-slate-800 text-slate-400 text-[11px] font-medium strategy-day-btn';
 
         btn.addEventListener('click', () => {
             const nowActive = btn.dataset.active === '1';
             btn.dataset.active = nowActive ? '0' : '1';
-            btn.className = `btn btn-sm ${nowActive ? 'btn-outline-secondary' : 'btn-primary'} strategy-day-btn`;
+            btn.className = nowActive
+                ? 'w-9 h-9 flex items-center justify-center rounded-full bg-slate-800 text-slate-400 text-[11px] font-medium strategy-day-btn'
+                : 'w-9 h-9 flex items-center justify-center rounded-full bg-primary text-white text-[11px] font-bold ring-2 ring-primary ring-offset-2 ring-offset-background-dark strategy-day-btn';
             const row = document.getElementById(`${prefix}-time-${i}`);
-            row.style.display = nowActive ? 'none' : 'flex';
+            row.style.display = nowActive ? 'none' : 'grid';
             syncStrategyJson();
         });
 
@@ -437,17 +472,17 @@ function buildDaySection(container, prefix, label, activeDays) {
         // Time window row with noUiSlider
         const row = document.createElement('div');
         row.id = `${prefix}-time-${i}`;
-        row.className = 'strategy-time-row';
-        row.style.display = isActive ? 'flex' : 'none';
+        row.className = 'px-4 py-3 grid grid-cols-[60px_1fr_80px] items-center gap-4 strategy-time-row';
+        row.style.display = isActive ? 'grid' : 'none';
 
         const dayLabel = document.createElement('span');
-        dayLabel.className = 'strategy-day-label';
+        dayLabel.className = 'text-[11px] font-bold text-slate-400';
         dayLabel.textContent = DAY_NAMES[i];
 
         const rangeLabel = document.createElement('span');
-        rangeLabel.className = 'range-value';
+        rangeLabel.className = 'text-[10px] font-semibold text-primary text-right whitespace-nowrap';
         rangeLabel.id = `${prefix}-label-${i}`;
-        rangeLabel.textContent = `${timeWindow[0]}:00 – ${timeWindow[1]}:00`;
+        rangeLabel.textContent = `${timeWindow[0]}:00–${timeWindow[1]}:00`;
 
         const sliderWrap = document.createElement('div');
         sliderWrap.className = 'nouislider-wrap';
@@ -457,11 +492,11 @@ function buildDaySection(container, prefix, label, activeDays) {
         sliderWrap.appendChild(sliderEl);
 
         row.appendChild(dayLabel);
-        row.appendChild(rangeLabel);
         row.appendChild(sliderWrap);
+        row.appendChild(rangeLabel);
         timeRows.appendChild(row);
 
-        // Initialize noUiSlider synchronously so syncStrategyJson() can read values
+        // Initialize noUiSlider
         noUiSlider.create(sliderEl, {
             start: [timeWindow[0], timeWindow[1]],
             connect: true,
@@ -474,9 +509,7 @@ function buildDaySection(container, prefix, label, activeDays) {
         });
 
         sliderEl.noUiSlider.on('update', (values) => {
-            const f = values[0];
-            const t = values[1];
-            rangeLabel.textContent = `${f}:00 – ${t}:00`;
+            rangeLabel.textContent = `${values[0]}:00–${values[1]}:00`;
         });
 
         sliderEl.noUiSlider.on('change', () => {
@@ -547,13 +580,14 @@ function toggleNotification(btn, profileId, destination) {
     })
     .then(res => res.json())
     .then(data => {
-        const icon = btn.querySelector('.bell-icon');
+        const icon = btn.querySelector('.material-symbols-outlined');
+        if (!icon) return;
         if (data.enabled) {
-            icon.innerHTML = '\u{1F514}';
-            icon.className = 'bell-icon bell-active';
+            icon.classList.remove('bell-inactive');
+            icon.classList.add('bell-active', 'nav-active');
         } else {
-            icon.innerHTML = '\u{1F515}';
-            icon.className = 'bell-icon bell-inactive';
+            icon.classList.remove('bell-active', 'nav-active');
+            icon.classList.add('bell-inactive');
         }
     })
     .catch(err => {
@@ -568,13 +602,9 @@ function toggleNotification(btn, profileId, destination) {
 
 function copyToClipboard(text, btn) {
     navigator.clipboard.writeText(text).then(() => {
-        const orig = btn.innerHTML;
-        btn.innerHTML = 'Copied!';
-        btn.classList.replace('btn-outline-secondary', 'btn-success');
-        setTimeout(() => {
-            btn.innerHTML = orig;
-            btn.classList.replace('btn-success', 'btn-outline-secondary');
-        }, 2000);
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
     });
 }
 

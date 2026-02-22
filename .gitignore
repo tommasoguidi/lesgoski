@@ -14,3 +14,11 @@ web.log
 *backup.csv
 lesgoski_screen/
 src/lesgoski/webapp/newUI/
+AGENTS.md
+directives/
+execution/
+.tmp/
+skills/
+node_modules/
+package-lock.json
+src/lesgoski/webapp/static/tailwind.css

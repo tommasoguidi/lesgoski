@@ -107,7 +107,7 @@ def seed_admin():
     import logging
     from lesgoski.config import ADMIN_USERNAME, ADMIN_PASSWORD
     from lesgoski.database.models import User, SearchProfile
-    from lesgoski.webapp.auth import hash_password
+    from lesgoski.webapp.auth import hash_password, generate_ntfy_topic
 
     logger = logging.getLogger(__name__)
     if not ADMIN_USERNAME or not ADMIN_PASSWORD:
@@ -121,6 +121,7 @@ def seed_admin():
                 username=ADMIN_USERNAME,
                 hashed_password=hash_password(ADMIN_PASSWORD),
                 is_admin=True,
+                ntfy_topic=generate_ntfy_topic(),
             )
             db.add(admin)
             db.flush()
@@ -130,6 +131,9 @@ def seed_admin():
             if not admin.is_admin:
                 admin.is_admin = True
                 logger.info(f"User '{ADMIN_USERNAME}' promoted to admin.")
+            if not admin.ntfy_topic:
+                admin.ntfy_topic = generate_ntfy_topic()
+                logger.info(f"Assigned ntfy_topic to admin '{ADMIN_USERNAME}'.")
 
         orphaned = db.query(SearchProfile).filter(SearchProfile.user_id == None).all()
         if orphaned:

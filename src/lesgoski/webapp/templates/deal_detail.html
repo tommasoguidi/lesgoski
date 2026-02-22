@@ -1,0 +1,117 @@
+<!-- webapp/templates/deal_detail.html -->
+{% extends "base.html" %}
+
+{% block content %}
+
+<header class="sticky top-0 z-40 bg-background-dark/80 ios-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+    <a href="/?profile_id={{ current_profile.id }}" class="flex items-center text-primary">
+        <span class="material-symbols-outlined">chevron_left</span>
+        <span class="text-base font-medium">Deals</span>
+    </a>
+    <h1 class="text-base font-semibold">Deal Details</h1>
+    <div class="w-16"></div>
+</header>
+
+<main class="p-4 space-y-4 pb-8">
+
+    <!-- Hero card -->
+    <section class="bg-card-dark rounded-2xl p-5 border border-slate-800">
+        <div class="flex justify-between items-start mb-6">
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <h2 class="text-3xl font-bold">{{ destination_name }}</h2>
+                    <img src="{{ country_flag }}" alt="{{ country_code }}" class="w-7 h-5 rounded-sm object-cover shadow-sm">
+                    <span class="text-slate-400 font-mono text-sm">{{ destination_code }}</span>
+                </div>
+                <button onclick="toggleNotification(this, '{{ current_profile.id }}', '{{ destination_code }}')"
+                        class="flex items-center gap-1.5 text-sm transition-colors">
+                    <span class="material-symbols-outlined text-base {{ 'bell-active nav-active' if destination_code in notify_destinations else 'bell-inactive' }}">notifications</span>
+                    <span class="text-slate-400 text-xs">{{ 'Alerts on' if destination_code in notify_destinations else 'Alerts off' }}</span>
+                </button>
+            </div>
+            <div class="text-right">
+                <div class="text-3xl font-bold {{ 'text-accent-green' if not is_over else 'text-yellow-400' }}">&euro;{{ "%.0f"|format(best_deal.total_price_pp) }}</div>
+            </div>
+        </div>
+
+        <!-- Best deal flights -->
+        <div class="space-y-4 pt-4 border-t border-slate-700">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span class="material-symbols-outlined text-2xl text-primary">flight_takeoff</span>
+                    <div class="text-sm">
+                        <p class="font-medium">{{ best_deal.outbound.departure_time.strftime('%a %d %b') }}</p>
+                        <div class="flex items-center gap-1.5 text-slate-400 text-xs">
+                            <span>{{ best_deal.outbound.origin }}</span>
+                            <span class="material-symbols-outlined text-[12px]">trending_flat</span>
+                            <span>{{ best_deal.outbound.destination }}</span>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-sm font-medium">{{ best_deal.outbound.departure_time.strftime('%H:%M') }} – {{ best_deal.outbound.arrival_time.strftime('%H:%M') }}</p>
+            </div>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span class="material-symbols-outlined text-2xl text-primary">flight_land</span>
+                    <div class="text-sm">
+                        <p class="font-medium">{{ best_deal.inbound.departure_time.strftime('%a %d %b') }}</p>
+                        <div class="flex items-center gap-1.5 text-slate-400 text-xs">
+                            <span>{{ best_deal.inbound.origin }}</span>
+                            <span class="material-symbols-outlined text-[12px]">trending_flat</span>
+                            <span>{{ best_deal.inbound.destination }}</span>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-sm font-medium">{{ best_deal.inbound.departure_time.strftime('%H:%M') }} – {{ best_deal.inbound.arrival_time.strftime('%H:%M') }}</p>
+            </div>
+
+            <!-- Book buttons -->
+            <div class="flex flex-col gap-2 mt-2">
+                {% for btn in booking_links(best_deal) %}
+                <a href="{{ btn.url }}" target="_blank"
+                   class="w-full bg-primary text-white py-4 rounded-xl font-bold text-center active:scale-[0.98] transition-transform block shadow-lg shadow-blue-500/20">
+                    {{ btn.label }}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Other dates -->
+    {% if other_deals %}
+    <section class="space-y-2">
+        <h3 class="text-sm font-semibold text-primary px-1">Other dates available</h3>
+        {% for deal in other_deals %}
+        {% set deal_is_over = deal.total_price_pp > deal.profile.max_price %}
+        {% for btn in booking_links(deal) %}
+        <a href="{{ btn.url }}" target="_blank"
+           class="bg-card-dark/60 p-4 rounded-xl border border-slate-800 flex items-center justify-between active:bg-slate-800/50 transition-colors block">
+            <div class="flex flex-col gap-2">
+                <div class="flex items-center gap-2 font-medium text-sm">
+                    <span>{{ deal.outbound.departure_time.strftime('%a %d/%m') }}</span>
+                    <span class="material-symbols-outlined text-xs text-slate-400">arrow_forward</span>
+                    <span>{{ deal.inbound.departure_time.strftime('%a %d/%m') }}</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-1 text-[11px] text-slate-400">
+                        <span class="material-symbols-outlined text-[16px] text-primary">flight_takeoff</span>
+                        <span>{{ deal.outbound.origin }} {{ deal.outbound.departure_time.strftime('%H:%M') }}</span>
+                    </div>
+                    <div class="flex items-center gap-1 text-[11px] text-slate-400">
+                        <span class="material-symbols-outlined text-[16px] text-primary">flight_land</span>
+                        <span>{{ deal.inbound.origin }} {{ deal.inbound.departure_time.strftime('%H:%M') }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="font-bold text-lg {{ 'text-accent-green' if not deal_is_over else 'text-yellow-400' }} flex-shrink-0 ml-3">
+                &euro;{{ "%.0f"|format(deal.total_price_pp) }}
+            </div>
+        </a>
+        {% endfor %}
+        {% endfor %}
+    </section>
+    {% endif %}
+
+</main>
+
+{% endblock %}
