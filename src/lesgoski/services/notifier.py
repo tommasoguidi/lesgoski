@@ -109,37 +109,6 @@ def notify_new_deals(db: Session, profile: SearchProfile):
         except Exception as e:
             logger.error(f"Failed to send notification for {dest}: {e}")
 
-    # # --- Generic summary for un-belled new deals ---
-    # unbelled = {dest: deal for dest, deal in by_dest.items() if dest not in notify_dests}
-
-    # if unbelled:
-    #     # Top 3 cheapest un-belled destinations
-    #     top3 = sorted(unbelled.values(), key=lambda d: d.total_price_pp)[:3]
-    #     summary_parts = []
-    #     for deal in top3:
-    #         dest_name = (deal.outbound.destination_full or deal.outbound.destination).split(",")[0].strip()
-    #         summary_parts.append(f"{dest_name} {deal.total_price_pp:.0f}€")
-
-    #     title = f"{profile.name}: {len(unbelled)} new deals"
-    #     body = " | ".join(summary_parts)
-    #     url = _webapp_profile_url(profile.id)
-
-    #     try:
-    #         requests.post(
-    #             ntfy_url,
-    #             headers={
-    #                 "Title": title,
-    #                 "Click": url,
-    #                 "Tags": "chart_with_upwards_trend",
-    #                 "Priority": "2",
-    #             },
-    #             data=body,
-    #             timeout=10,
-    #         )
-    #         sent += 1
-    #     except Exception as e:
-    #         logger.error(f"Failed to send generic summary for {profile.name}: {e}")
-
     # Mark all as notified
     for deal in actual_deals:
         deal.notified = True
@@ -156,7 +125,7 @@ def send_daily_digest(db: Session):
     profiles = (
         db.query(SearchProfile)
         .options(joinedload(SearchProfile.user))
-        .filter(SearchProfile.is_active == True)
+        .filter(SearchProfile.is_active)
         .all()
     )
     if not profiles:
@@ -196,13 +165,14 @@ def send_daily_digest(db: Session):
             lines.append(f"{dest_name}: {deal.total_price_pp:.0f}EUR ({out_date}-{in_date})")
 
         body = "\n".join(lines)
+        url = _webapp_profile_url(profile.id)
 
         try:
             requests.post(
                 ntfy_url,
                 headers={
                     "Title": f"Daily Flight Digest - {profile.name}",
-                    "Click": f"{WEBAPP_URL}/",
+                    "Click": url,
                     "Tags": "globe_with_meridians",
                     "Priority": "3",
                 },

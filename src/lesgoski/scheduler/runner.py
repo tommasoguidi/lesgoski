@@ -38,7 +38,7 @@ def check_and_run_updates():
     """
     db = SessionLocal()
     try:
-        profiles = db.query(SearchProfile).filter(SearchProfile.is_active == True).all()
+        profiles = db.query(SearchProfile).filter(SearchProfile.is_active).all()
         now = datetime.now()
         threshold = now - timedelta(minutes=UPDATE_INTERVAL_MINUTES)
 

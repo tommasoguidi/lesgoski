@@ -135,7 +135,7 @@ def seed_admin():
                 admin.ntfy_topic = generate_ntfy_topic()
                 logger.info(f"Assigned ntfy_topic to admin '{ADMIN_USERNAME}'.")
 
-        orphaned = db.query(SearchProfile).filter(SearchProfile.user_id == None).all()
+        orphaned = db.query(SearchProfile).filter(SearchProfile.user_id is None).all()
         if orphaned:
             for p in orphaned:
                 p.user_id = admin.id

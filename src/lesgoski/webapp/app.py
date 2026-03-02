@@ -155,8 +155,8 @@ def signup(
         db.query(InviteToken)
         .filter(
             InviteToken.token == invite_code,
-            InviteToken.used_by == None,
-            InviteToken.revoked == False,
+            InviteToken.used_by is None,
+            not InviteToken.revoked,
             InviteToken.created_at >= datetime.now(timezone.utc) - timedelta(days=7),
         )
         .first()
@@ -221,8 +221,8 @@ def settings_page(
             db.query(InviteToken)
             .filter(
                 InviteToken.created_by == user.id,
-                InviteToken.revoked == False,
-                or_(InviteToken.used_by == None, InviteToken.used_at >= cutoff),
+                not InviteToken.revoked,
+                or_(InviteToken.used_by is None, InviteToken.used_at >= cutoff),
             )
             .order_by(InviteToken.used_at.asc().nullsfirst(), InviteToken.created_at.asc())
             .all()
@@ -254,7 +254,7 @@ def goskis_page(
     shared_profiles = (
         db.query(SearchProfile)
         .filter(
-            SearchProfile.is_active == True,
+            SearchProfile.is_active,
             SearchProfile.viewers.any(User.id == user.id),
         )
         .all()
@@ -284,7 +284,7 @@ def alerts_page(
     all_profiles = (
         db.query(SearchProfile)
         .filter(
-            SearchProfile.is_active == True,
+            SearchProfile.is_active,
             (SearchProfile.user_id == user.id) | SearchProfile.viewers.any(User.id == user.id),
         )
         .all()
@@ -446,7 +446,7 @@ def view_deals(
     all_profiles = (
         db.query(SearchProfile)
         .filter(
-            SearchProfile.is_active == True,
+            SearchProfile.is_active,
             (SearchProfile.user_id == user.id) | SearchProfile.viewers.any(User.id == user.id),
         )
         .all()
@@ -589,7 +589,7 @@ def deal_detail(
         all_p = (
             db.query(SearchProfile)
             .filter(
-                SearchProfile.is_active == True,
+                SearchProfile.is_active,
                 (SearchProfile.user_id == user.id) | SearchProfile.viewers.any(User.id == user.id),
             )
             .first()
@@ -937,7 +937,7 @@ def search_users(
         return []
 
     # IDs to exclude: self + anyone with an existing broski request (any status)
-    from sqlalchemy import or_, and_
+    from sqlalchemy import or_
     existing_reqs = db.query(BroskiRequest).filter(
         or_(
             BroskiRequest.from_user_id == user.id,

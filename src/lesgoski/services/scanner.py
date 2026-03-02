@@ -1,17 +1,15 @@
 # services/scanner.py
 import logging
-import time
 from datetime import datetime, timedelta
 from ryanair import Ryanair
-
-logger = logging.getLogger(__name__)
-
 from lesgoski.config import SCAN_COOLDOWN_MINUTES, LOOKUP_HORIZON_DAYS
 from lesgoski.core.schemas import FlightSchema
 from lesgoski.database.engine import SessionLocal
 from lesgoski.database.models import Flight, ScanLog
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_upsert
+
+logger = logging.getLogger(__name__)
 
 
 class FlightScanner:
