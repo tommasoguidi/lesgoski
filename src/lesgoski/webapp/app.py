@@ -155,8 +155,8 @@ def signup(
         db.query(InviteToken)
         .filter(
             InviteToken.token == invite_code,
-            InviteToken.used_by is None,
-            not InviteToken.revoked,
+            InviteToken.used_by.is_(None),
+            ~(InviteToken.revoked),
             InviteToken.created_at >= datetime.now(timezone.utc) - timedelta(days=7),
         )
         .first()
@@ -221,8 +221,8 @@ def settings_page(
             db.query(InviteToken)
             .filter(
                 InviteToken.created_by == user.id,
-                not InviteToken.revoked,
-                or_(InviteToken.used_by is None, InviteToken.used_at >= cutoff),
+                ~(InviteToken.revoked),
+                or_(InviteToken.used_by.is_(None), InviteToken.used_at >= cutoff),
             )
             .order_by(InviteToken.used_at.asc().nullsfirst(), InviteToken.created_at.asc())
             .all()

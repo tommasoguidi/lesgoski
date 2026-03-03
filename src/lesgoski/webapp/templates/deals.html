@@ -47,7 +47,7 @@
             <div class="flex flex-wrap gap-2">
                 {% for c in filter_countries %}
                 <input type="checkbox" id="chk-{{ c }}" value="{{ c }}" class="sr-only country-filter" onchange="applyFilters()" checked>
-                <label for="chk-{{ c }}" class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold cursor-pointer transition-colors shadow-lg shadow-primary/20 country-filter-label">{{ c }}</label>
+                <label for="chk-{{ c }}" class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-colors country-filter-label">{{ c }}</label>
                 {% endfor %}
             </div>
         </div>
