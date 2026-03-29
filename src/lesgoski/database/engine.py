@@ -95,6 +95,23 @@ def _run_migrations():
                 "CREATE UNIQUE INDEX ix_invite_tokens_token ON invite_tokens (token)"
             ))
 
+    # Migration 5: Create price_snapshots table
+    if 'price_snapshots' not in inspector.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE price_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_id INTEGER NOT NULL REFERENCES search_profiles(id),
+                    destination_code VARCHAR NOT NULL,
+                    best_price FLOAT NOT NULL,
+                    advance_days INTEGER NOT NULL,
+                    recorded_at DATETIME NOT NULL
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX idx_snapshot_lookup ON price_snapshots (profile_id, destination_code, recorded_at)"
+            ))
+
 def seed_admin():
     """
     Seeds the admin user from ADMIN_USERNAME / ADMIN_PASSWORD env vars.

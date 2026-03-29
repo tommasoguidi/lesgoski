@@ -5,6 +5,7 @@ from lesgoski.database.models import SearchProfile
 from lesgoski.services.scanner import FlightScanner
 from lesgoski.services.matcher import DealMatcher
 from lesgoski.services.notifier import notify_new_deals
+from lesgoski.services.stats import record_price_snapshots
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -32,10 +33,13 @@ def update_single_profile(db: Session, profile_id: int):
         count_deals = matcher.run(profile)
         logger.info(f"  Found {count_deals} matching deals.")
 
-        # 3. Send push notifications for new deals
+        # 3. Record price snapshots for historical stats
+        record_price_snapshots(db, profile)
+
+        # 4. Send push notifications for new deals
         notify_new_deals(db, profile)
 
-        # 4. Mark profile as updated
+        # 5. Mark profile as updated
         profile.updated_at = datetime.now()
         db.commit()
         logger.info(f"Update complete for {profile.name}")

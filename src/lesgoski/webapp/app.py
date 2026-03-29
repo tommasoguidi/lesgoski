@@ -2,7 +2,6 @@
 import csv
 import json
 import logging
-from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,7 +11,8 @@ from lesgoski.webapp.auth import (
     verify_password, hash_password, generate_ntfy_topic, generate_invite_token,
     get_broskis, get_pending_broski_requests,
 )
-from lesgoski.services.airports import get_nearby_set
+from lesgoski.services.grouping import group_deals_by_destination
+from lesgoski.services.stats import get_all_destination_stats, get_destination_stats
 from fastapi import FastAPI, Depends, Request, Form, BackgroundTasks, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -485,70 +485,16 @@ def view_deals(
     # Discard deals whose flights were pruned (orphaned FK safety net)
     deals = [d for d in deals if d.outbound and d.inbound]
 
-    # Grouping Data — metro-area aware
-    grouped = defaultdict(list)
-    unique_countries = set()
-    unique_destinations = set()
-    dest_full_names: dict[str, str] = {}
+    view_data = group_deals_by_destination(deals)
 
-    for deal in deals:
-        if not deal.outbound:
-            continue
+    # Build filter sets from grouped data
+    unique_countries = {g["country_code"] for g in view_data}
+    unique_destinations = {g["destination_code"] for g in view_data}
 
-        out_dest = deal.outbound.destination
-        in_origin = deal.inbound.origin if deal.inbound else out_dest
-
-        area_codes = get_nearby_set(out_dest) | get_nearby_set(in_origin)
-
-        for code in area_codes:
-            grouped[code].append(deal)
-
-        for code, full_name in [
-            (out_dest, deal.outbound.destination_full or out_dest),
-            (in_origin, (deal.inbound.origin_full if deal.inbound else None) or in_origin),
-        ]:
-            if code not in dest_full_names:
-                dest_full_names[code] = full_name
-            country_code = get_country_code(full_name)
-            unique_countries.add(country_code)
-            unique_destinations.add(code)
-
-    direct_codes = set()
-    for deal in deals:
-        if deal.outbound:
-            direct_codes.add(deal.outbound.destination)
-        if deal.inbound:
-            direct_codes.add(deal.inbound.origin)
-
-    view_data = []
-    for dest_code, deal_list in grouped.items():
-        if not deal_list:
-            continue
-        if dest_code not in direct_codes:
-            continue
-
-        seen_ids = set()
-        unique_deals = []
-        for d in deal_list:
-            if d.id not in seen_ids:
-                seen_ids.add(d.id)
-                unique_deals.append(d)
-        unique_deals.sort(key=lambda x: x.total_price_pp)
-
-        first = unique_deals[0]
-        full_name = dest_full_names.get(dest_code, dest_code)
-        country_code = get_country_code(full_name)
-
-        view_data.append({
-            "destination_code": dest_code,
-            "destination_name": full_name.split(',')[0].strip(),
-            "country_code": country_code,
-            "country_flag": f"https://flagsapi.com/{country_code.upper()}/shiny/64.png",
-            "best_deal": first,
-            "other_deals": unique_deals[1:]
-        })
-
-    view_data.sort(key=lambda x: x["best_deal"].total_price_pp)
+    # Historical stats for all destinations in one query
+    all_stats = get_all_destination_stats(db, current_profile.id)
+    for g in view_data:
+        g["stats"] = all_stats.get(g["destination_code"])
 
     is_owner = current_profile.user_id == user.id
 
@@ -626,6 +572,7 @@ def deal_detail(
     country_code = get_country_code(full_name)
     country_flag = f"https://flagsapi.com/{country_code.upper()}/shiny/64.png"
     is_over = best_deal.total_price_pp > best_deal.profile.max_price
+    stats = get_destination_stats(db, current_profile.id, destination_code)
 
     return templates.TemplateResponse("deal_detail.html", {
         "request": request,
@@ -639,6 +586,7 @@ def deal_detail(
         "current_profile": current_profile,
         "notify_destinations": current_profile.notify_destinations if current_profile else [],
         "is_over": is_over,
+        "stats": stats,
     })
 
 

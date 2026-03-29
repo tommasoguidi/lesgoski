@@ -225,3 +225,23 @@ class Deal(Base):
         viewonly=True,
     )
     profile = relationship("SearchProfile", foreign_keys=[profile_id])
+
+
+class PriceSnapshot(Base):
+    """
+    Daily best-price snapshot per (profile, destination).
+    One row per calendar day — updated if a cheaper deal is found the same day.
+    Used for computing historical stats: avg price, min price, avg booking advance.
+    """
+    __tablename__ = 'price_snapshots'
+
+    id = Column(Integer, primary_key=True)
+    profile_id = Column(Integer, ForeignKey('search_profiles.id'), nullable=False)
+    destination_code = Column(String, nullable=False)
+    best_price = Column(Float, nullable=False)
+    advance_days = Column(Integer, nullable=False)
+    recorded_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index('idx_snapshot_lookup', 'profile_id', 'destination_code', 'recorded_at'),
+    )
