@@ -93,9 +93,9 @@ def prune_stale_data():
             ScanLog.scanned_at < now - timedelta(days=7)
         ).delete()
 
-        # Prune price snapshots older than 90 days
+        # Prune price snapshots older than 365 days
         old_snapshots = db.query(PriceSnapshot).filter(
-            PriceSnapshot.recorded_at < now - timedelta(days=90)
+            PriceSnapshot.recorded_at < now - timedelta(days=365)
         ).delete()
 
         db.commit()

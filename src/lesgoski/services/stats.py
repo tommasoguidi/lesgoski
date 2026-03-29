@@ -1,6 +1,6 @@
 # services/stats.py
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from statistics import mean
 from sqlalchemy.orm import Session
 from lesgoski.database.models import Deal, PriceSnapshot, SearchProfile
@@ -62,8 +62,10 @@ def get_all_destination_stats(db: Session, profile_id: int):
     destination_code. Each value is None (< 3 data points) or:
       { avg_price, min_price, avg_advance_days, count }
     """
+    cutoff = datetime.now() - timedelta(days=90)
     snapshots = db.query(PriceSnapshot).filter(
         PriceSnapshot.profile_id == profile_id,
+        PriceSnapshot.recorded_at >= cutoff,
     ).all()
 
     by_dest = {}
