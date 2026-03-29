@@ -1,6 +1,42 @@
 // webapp/static/scripts.js
 
 // ==========================================
+// DEAL DATE CARD EXPAND/COLLAPSE
+// ==========================================
+
+function toggleDealExpand(card) {
+    const expanded = card.querySelector('.deal-expanded');
+    const icon = card.querySelector('.deal-expand-icon');
+    const isOpen = !expanded.classList.contains('hidden');
+
+    // Collapse all other cards first
+    document.querySelectorAll('.deal-date-card').forEach(function(c) {
+        if (c !== card) {
+            c.querySelector('.deal-expanded').classList.add('hidden');
+            c.querySelector('.deal-expand-icon').style.transform = '';
+        }
+    });
+
+    if (isOpen) {
+        expanded.classList.add('hidden');
+        icon.style.transform = '';
+    } else {
+        expanded.classList.remove('hidden');
+        icon.style.transform = 'rotate(180deg)';
+    }
+}
+
+// Collapse expanded deal card when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.deal-date-card')) {
+        document.querySelectorAll('.deal-date-card').forEach(function(c) {
+            c.querySelector('.deal-expanded').classList.add('hidden');
+            c.querySelector('.deal-expand-icon').style.transform = '';
+        });
+    }
+});
+
+// ==========================================
 // PASSWORD VISIBILITY TOGGLE
 // ==========================================
 

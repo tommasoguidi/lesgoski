@@ -83,31 +83,73 @@
         <h3 class="text-sm font-semibold text-primary px-1">Other dates available</h3>
         {% for deal in other_deals %}
         {% set deal_is_over = deal.total_price_pp > deal.profile.max_price %}
-        {% for btn in booking_links(deal) %}
-        <a href="{{ btn.url }}" target="_blank"
-           class="bg-card-dark/60 p-4 rounded-xl border border-slate-800 flex items-center justify-between active:bg-slate-800/50 transition-colors block">
-            <div class="flex flex-col gap-2">
-                <div class="flex items-center gap-2 font-medium text-sm">
-                    <span>{{ deal.outbound.departure_time.strftime('%a %d/%m') }}</span>
-                    <span class="material-symbols-outlined text-xs text-slate-400">arrow_forward</span>
-                    <span>{{ deal.inbound.departure_time.strftime('%a %d/%m') }}</span>
+        <div class="deal-date-card bg-card-dark rounded-xl border border-slate-800 overflow-hidden cursor-pointer"
+             onclick="toggleDealExpand(this)">
+            <!-- Collapsed summary -->
+            <div class="flex items-center justify-between p-4">
+                <div class="flex flex-col gap-1.5">
+                    <div class="flex items-center gap-2 font-medium text-sm">
+                        <span>{{ deal.outbound.departure_time.strftime('%a %d/%m') }}</span>
+                        <span class="material-symbols-outlined text-xs text-slate-400">arrow_forward</span>
+                        <span>{{ deal.inbound.departure_time.strftime('%a %d/%m') }}</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-1 text-[11px] text-slate-400">
+                            <span class="material-symbols-outlined text-[14px] text-primary">flight_takeoff</span>
+                            <span>{{ deal.outbound.origin }} <span class="material-symbols-outlined text-[10px]">trending_flat</span> {{ deal.outbound.destination }}</span>
+                        </div>
+                        <div class="flex items-center gap-1 text-[11px] text-slate-400">
+                            <span class="material-symbols-outlined text-[14px] text-primary">flight_land</span>
+                            <span>{{ deal.inbound.origin }} <span class="material-symbols-outlined text-[10px]">trending_flat</span> {{ deal.inbound.destination }}</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex items-center gap-4">
-                    <div class="flex items-center gap-1 text-[11px] text-slate-400">
-                        <span class="material-symbols-outlined text-[16px] text-primary">flight_takeoff</span>
-                        <span>{{ deal.outbound.origin }} {{ deal.outbound.departure_time.strftime('%H:%M') }}</span>
-                    </div>
-                    <div class="flex items-center gap-1 text-[11px] text-slate-400">
-                        <span class="material-symbols-outlined text-[16px] text-primary">flight_land</span>
-                        <span>{{ deal.inbound.origin }} {{ deal.inbound.departure_time.strftime('%H:%M') }}</span>
-                    </div>
+                <div class="flex items-center gap-2 flex-shrink-0 ml-3">
+                    <span class="font-bold text-lg {{ 'text-accent-green' if not deal_is_over else 'text-yellow-400' }}">&euro;{{ "%.0f"|format(deal.total_price_pp) }}</span>
+                    <span class="material-symbols-outlined text-slate-400 deal-expand-icon transition-transform">expand_more</span>
                 </div>
             </div>
-            <div class="font-bold text-lg {{ 'text-accent-green' if not deal_is_over else 'text-yellow-400' }} flex-shrink-0 ml-3">
-                &euro;{{ "%.0f"|format(deal.total_price_pp) }}
+            <!-- Expanded detail (hidden by default) -->
+            <div class="deal-expanded hidden border-t border-slate-700 p-4 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined text-2xl text-primary">flight_takeoff</span>
+                        <div class="text-sm">
+                            <p class="font-medium">{{ deal.outbound.departure_time.strftime('%a %d %b') }}</p>
+                            <div class="flex items-center gap-1.5 text-slate-400 text-xs">
+                                <span>{{ deal.outbound.origin }}</span>
+                                <span class="material-symbols-outlined text-[12px]">trending_flat</span>
+                                <span>{{ deal.outbound.destination }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-sm font-medium">{{ deal.outbound.departure_time.strftime('%H:%M') }} – {{ deal.outbound.arrival_time.strftime('%H:%M') }}</p>
+                </div>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined text-2xl text-primary">flight_land</span>
+                        <div class="text-sm">
+                            <p class="font-medium">{{ deal.inbound.departure_time.strftime('%a %d %b') }}</p>
+                            <div class="flex items-center gap-1.5 text-slate-400 text-xs">
+                                <span>{{ deal.inbound.origin }}</span>
+                                <span class="material-symbols-outlined text-[12px]">trending_flat</span>
+                                <span>{{ deal.inbound.destination }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-sm font-medium">{{ deal.inbound.departure_time.strftime('%H:%M') }} – {{ deal.inbound.arrival_time.strftime('%H:%M') }}</p>
+                </div>
+                <div class="flex flex-col gap-2">
+                    {% for btn in booking_links(deal) %}
+                    <a href="{{ btn.url }}" target="_blank"
+                       onclick="event.stopPropagation()"
+                       class="w-full bg-primary text-white py-3.5 rounded-xl font-bold text-center active:scale-[0.98] transition-transform block shadow-md shadow-blue-500/10">
+                        {{ btn.label }}
+                    </a>
+                    {% endfor %}
+                </div>
             </div>
-        </a>
-        {% endfor %}
+        </div>
         {% endfor %}
     </section>
     {% endif %}
