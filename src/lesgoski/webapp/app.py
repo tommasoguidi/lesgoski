@@ -4,6 +4,7 @@ import json
 import logging
 from functools import lru_cache
 from pathlib import Path
+from collections import defaultdict
 
 from lesgoski.webapp.utils import get_country_code, get_booking_links
 from lesgoski.webapp.auth import (
@@ -11,6 +12,7 @@ from lesgoski.webapp.auth import (
     verify_password, hash_password, generate_ntfy_topic, generate_invite_token,
     get_broskis, get_pending_broski_requests,
 )
+from lesgoski.services.airports import get_nearby_set
 from lesgoski.services.grouping import group_deals_by_destination
 from lesgoski.services.stats import get_all_destination_stats, get_destination_stats
 from fastapi import FastAPI, Depends, Request, Form, BackgroundTasks, HTTPException
@@ -112,7 +114,10 @@ def _user_can_access(profile: SearchProfile, user: User) -> bool:
 def login_page(request: Request, user: User = Depends(get_current_user)):
     if user:
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+    )
 
 
 @app.post("/login")
@@ -124,9 +129,10 @@ def login(
 ):
     user = db.query(User).filter(User.username == username).first()
     if not user or not verify_password(password, user.hashed_password):
-        return templates.TemplateResponse("login.html", {
-            "request": request, "error": "Invalid username or password",
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"error": "Invalid username or password"})
     request.session["user_id"] = user.id
     return RedirectResponse("/", status_code=303)
 
@@ -135,7 +141,7 @@ def login(
 def signup_page(request: Request, user: User = Depends(get_current_user), invite: str = None):
     if user:
         return RedirectResponse("/", status_code=303)
-    return templates.TemplateResponse("signup.html", {"request": request, "invite": invite})
+    return templates.TemplateResponse(request=request, name="signup.html", context={"invite": invite})
 
 
 @app.post("/signup")
@@ -163,19 +169,19 @@ def signup(
     )
     if not token_obj:
         ctx["error"] = "Invalid or already used invite code"
-        return templates.TemplateResponse("signup.html", ctx)
+        return templates.TemplateResponse(request=request, name="signup.html", context=ctx)
     if password != confirm_password:
         ctx["error"] = "Passwords do not match"
-        return templates.TemplateResponse("signup.html", ctx)
+        return templates.TemplateResponse(request=request, name="signup.html", context=ctx)
     if len(password) < 8:
         ctx["error"] = "Password must be at least 8 characters"
-        return templates.TemplateResponse("signup.html", ctx)
+        return templates.TemplateResponse(request=request, name="signup.html", context=ctx)
     if len(username) < 3:
         ctx["error"] = "Username must be at least 3 characters"
-        return templates.TemplateResponse("signup.html", ctx)
+        return templates.TemplateResponse(request=request, name="signup.html", context=ctx)
     if db.query(User).filter(User.username == username).first():
         ctx["error"] = "Username already taken"
-        return templates.TemplateResponse("signup.html", ctx)
+        return templates.TemplateResponse(request=request, name="signup.html", context=ctx)
 
     user = User(
         username=username,
@@ -228,13 +234,15 @@ def settings_page(
             .all()
         )
 
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
-        "user": user,
-        "success": success,
-        "error": error,
-        "invite_tokens": invite_tokens,
-        "webapp_url": WEBAPP_URL,
+    return templates.TemplateResponse(
+        name="settings.html",
+        request=request,
+        context={
+            "user": user,
+            "success": success,
+            "error": error,
+            "invite_tokens": invite_tokens,
+            "webapp_url": WEBAPP_URL,
     })
 
 
@@ -262,15 +270,17 @@ def goskis_page(
     broskis = get_broskis(db, user)
     pending_requests = get_pending_broski_requests(db, user)
 
-    return templates.TemplateResponse("goskis.html", {
-        "request": request,
-        "user": user,
-        "success": success,
-        "error": error,
-        "own_profiles": own_profiles,
-        "shared_profiles": shared_profiles,
-        "broskis": broskis,
-        "pending_requests": pending_requests,
+    return templates.TemplateResponse(
+        name="goskis.html",
+        request=request,
+        context={
+            "user": user,
+            "success": success,
+            "error": error,
+            "own_profiles": own_profiles,
+            "shared_profiles": shared_profiles,
+            "broskis": broskis,
+            "pending_requests": pending_requests,
     })
 
 
@@ -351,10 +361,12 @@ def alerts_page(
 
     alert_items.sort(key=lambda x: x["best_deal"].total_price_pp)
 
-    return templates.TemplateResponse("alerts.html", {
-        "request": request,
-        "user": user,
-        "alert_items": alert_items,
+    return templates.TemplateResponse(
+        name="alerts.html",
+        request=request,
+        context={
+            "user": user,
+            "alert_items": alert_items,
     })
 
 
@@ -498,16 +510,18 @@ def view_deals(
 
     is_owner = current_profile.user_id == user.id
 
-    return templates.TemplateResponse("deals.html", {
-        "request": request,
-        "user": user,
-        "destinations": view_data,
-        "current_profile": current_profile,
-        "all_profiles": all_profiles,
-        "filter_countries": sorted(list(unique_countries)),
-        "filter_destinations": sorted(list(unique_destinations)),
-        "notify_destinations": current_profile.notify_destinations if current_profile else [],
-        "is_owner": is_owner,
+    return templates.TemplateResponse(
+        name="deals.html",
+        request=request,
+        context={
+            "user": user,
+            "destinations": view_data,
+            "current_profile": current_profile,
+            "all_profiles": all_profiles,
+            "filter_countries": sorted(list(unique_countries)),
+            "filter_destinations": sorted(list(unique_destinations)),
+            "notify_destinations": current_profile.notify_destinations if current_profile else [],
+            "is_owner": is_owner,
     })
 
 
@@ -574,19 +588,21 @@ def deal_detail(
     is_over = best_deal.total_price_pp > best_deal.profile.max_price
     stats = get_destination_stats(db, current_profile.id, destination_code)
 
-    return templates.TemplateResponse("deal_detail.html", {
-        "request": request,
-        "user": user,
-        "destination_code": destination_code,
-        "destination_name": destination_name,
-        "country_code": country_code,
-        "country_flag": country_flag,
-        "best_deal": best_deal,
-        "other_deals": other_deals,
-        "current_profile": current_profile,
-        "notify_destinations": current_profile.notify_destinations if current_profile else [],
-        "is_over": is_over,
-        "stats": stats,
+    return templates.TemplateResponse(
+        name="deal_detail.html",
+        request=request,
+        context={
+            "user": user,
+            "destination_code": destination_code,
+            "destination_name": destination_name,
+            "country_code": country_code,
+            "country_flag": country_flag,
+            "best_deal": best_deal,
+            "other_deals": other_deals,
+            "current_profile": current_profile,
+            "notify_destinations": current_profile.notify_destinations if current_profile else [],
+            "is_over": is_over,
+            "stats": stats,
     })
 
 
@@ -594,9 +610,15 @@ def deal_detail(
 
 @app.get("/profile/new", response_class=HTMLResponse)
 def new_profile_form(request: Request, user: User = Depends(require_user)):
-    return templates.TemplateResponse("profile_form.html", {
-        "request": request, "user": user, "profile": None, "is_new": True,
-    })
+    return templates.TemplateResponse(
+        name="profile_form.html",
+        request=request,
+        context={
+            "user": user,
+            "profile": None,
+            "is_new": True,
+        }
+    )
 
 
 @app.get("/profile/{pid}", response_class=HTMLResponse)
@@ -609,9 +631,15 @@ def edit_profile_form(
     profile = db.get(SearchProfile, pid)
     if not profile or profile.user_id != user.id:
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse("profile_form.html", {
-        "request": request, "user": user, "profile": profile, "is_new": False,
-    })
+    return templates.TemplateResponse(
+        name="profile_form.html",
+        request=request,
+        context={
+            "user": user,
+            "profile": profile,
+            "is_new": False,
+        }
+    )
 
 
 @app.post("/profile/save")
